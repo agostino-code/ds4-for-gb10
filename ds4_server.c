@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 static volatile sig_atomic_t g_stop_requested = 0;
+static volatile sig_atomic_t g_stop_signal = 0;
 static volatile sig_atomic_t g_listen_fd = -1;
 
 #define DS4_SERVER_IO_TIMEOUT_SEC 10
@@ -54,9 +55,9 @@ static volatile sig_atomic_t g_listen_fd = -1;
 #endif
 
 static void stop_signal_handler(int sig) {
-    (void)sig;
     if (g_stop_requested) _exit(130);
     g_stop_requested = 1;
+    g_stop_signal = sig;
     if (g_listen_fd >= 0) {
         int fd = (int)g_listen_fd;
         g_listen_fd = -1;
@@ -16139,7 +16140,8 @@ int main(int argc, char **argv) {
         g_listen_fd = -1;
     }
 
-    server_log(DS4_LOG_DEFAULT, "ds4-server: shutdown requested, draining requests");
+    server_log(DS4_LOG_DEFAULT, "ds4-server: shutdown requested (signal %d: %s), draining requests",
+               (int)g_stop_signal, g_stop_signal ? strsignal((int)g_stop_signal) : "none");
     server_request_worker_stop(&s);
     if (s.batched_mode) {
         for (int i = 0; i < slot_threads_started; i++) {

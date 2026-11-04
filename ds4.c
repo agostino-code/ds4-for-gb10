@@ -62775,7 +62775,12 @@ static void ds4_linux_graph_backend_set_oom_score(ds4_backend backend) {
     if (attempted) return;
     attempted = true;
 
-    const int score = 1000;
+    const char *env = getenv("DS4_OOM_SCORE_ADJ");
+    if (!env || !env[0]) return; /* Do not artificially inflate OOM score unless explicitly requested */
+    int score = atoi(env);
+    if (score < -1000) score = -1000;
+    if (score > 1000) score = 1000;
+
     FILE *fp = fopen("/proc/self/oom_score_adj", "w");
     if (!fp) {
         fprintf(stderr,
