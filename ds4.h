@@ -40,6 +40,10 @@ void dspark_update(struct dspark_controller *c, int accepted_tokens);
 size_t ds4_find_matching_prefix_length(const int *old_tokens, size_t old_len,
                                        const int *new_tokens, size_t new_len);
 
+/* Agent loop robustness hooks */
+bool ds4_should_inject_tool_reminder(size_t conversation_tokens, bool has_tools);
+const char *ds4_tool_protocol_reminder_text(void);
+
 /* Public engine boundary.
  *
  * The CLI and server should treat ds4_engine as the loaded model and
