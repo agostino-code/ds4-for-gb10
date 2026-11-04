@@ -13,6 +13,11 @@ int main(void) {
     assert(ds4_cuda_is_spark_fastpath_enabled(MODEL_TYPE_DEEPSEEK4, 890) == false);
     assert(ds4_cuda_is_spark_fastpath_enabled(MODEL_TYPE_DEEPSEEK4, 900) == false);
 
+    // Device-resident routing on GB10
+    assert(ds4_cuda_is_device_resident_routing_enabled(1210, false) == true);
+    assert(ds4_cuda_is_device_resident_routing_enabled(1210, true) == false);
+    assert(ds4_cuda_is_device_resident_routing_enabled(900, false) == false);
+
     printf("test_model_routing: PASS\n");
     return 0;
 }

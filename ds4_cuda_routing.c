@@ -7,3 +7,9 @@ bool ds4_cuda_is_spark_fastpath_enabled(int model_arch, int compute_cap) {
     if (model_arch != DS4_MODEL_FAMILY_DEEPSEEK4) return false;
     return true;
 }
+
+bool ds4_cuda_is_device_resident_routing_enabled(int compute_cap, bool is_streaming) {
+    if (is_streaming) return false;
+    // On SM121 (GB10) all resident models keep expert IDs and gating weights in GPU memory
+    return (compute_cap == 1210);
+}

@@ -3121,7 +3121,12 @@ __global__ void iq2_xxs_aligned_moe_gate_up_mid_kernel(
         const int b = b0 + (lane >> 3);
         const int p = lane & 7;
         const int q8i = (b * 256 + p * 32) / 32;
-        const int *u = (const int *)x8[q8i].qs;
+        // Vectorized 128-bit loads into registers for activation quants (32 bytes = 2x int4)
+        int4 u_vec0, u_vec1;
+        memcpy(&u_vec0, &x8[q8i].qs[0], sizeof(int4));
+        memcpy(&u_vec1, &x8[q8i].qs[16], sizeof(int4));
+        const int u[8] = { u_vec0.x, u_vec0.y, u_vec0.z, u_vec0.w,
+                           u_vec1.x, u_vec1.y, u_vec1.z, u_vec1.w };
         const float d8 = __low2float(x8[q8i].ds);
 
         const uint2 cwg = qs_gate[(rbase + b) * 8 + p];
@@ -3161,8 +3166,8 @@ __global__ void iq2_xxs_aligned_moe_gate_up_mid_kernel(
     }
 #pragma unroll
     for (int off = 16; off > 0; off >>= 1) {
-        acc_g += __shfl_down_sync(0xffffffffu, acc_g, off);
-        acc_u += __shfl_down_sync(0xffffffffu, acc_u, off);
+        acc_g += __shfl_xor_sync(0xffffffffu, acc_g, off);
+        acc_u += __shfl_xor_sync(0xffffffffu, acc_u, off);
     }
     if (lane == 0) {
         float gate = acc_g;
@@ -3305,8 +3310,8 @@ __global__ void iq2_xxs_aligned_moe_gate_up_mid_dedup_kernel(
     for (int m = 0; m < MAXM; m++) {
 #pragma unroll
         for (int off = 16; off > 0; off >>= 1) {
-            acc_g[m] += __shfl_down_sync(0xffffffffu, acc_g[m], off);
-            acc_u[m] += __shfl_down_sync(0xffffffffu, acc_u[m], off);
+            acc_g[m] += __shfl_xor_sync(0xffffffffu, acc_g[m], off);
+            acc_u[m] += __shfl_xor_sync(0xffffffffu, acc_u[m], off);
         }
     }
     if (lane == 0) {

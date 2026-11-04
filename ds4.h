@@ -25,6 +25,7 @@ typedef enum {
 #define MODEL_TYPE_QWEN38    DS4_MODEL_FAMILY_QWEN4_EXP
 
 bool ds4_cuda_is_spark_fastpath_enabled(int model_arch, int compute_cap);
+bool ds4_cuda_is_device_resident_routing_enabled(int compute_cap, bool is_streaming);
 
 /* DSpark speculative decoding & yield-quench controller */
 struct dspark_controller {
