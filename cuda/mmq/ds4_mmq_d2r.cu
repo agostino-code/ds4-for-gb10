@@ -8,6 +8,7 @@
 // launch decomposition was re-derived for this fork's serving profile).
 
 #include "ds4_mmq_d2r.cuh"
+#include "ds4_sm121_tuning.cuh"
 
 #include <type_traits>
 
@@ -2256,7 +2257,7 @@ void d2r_build_worklist_kernel(const int32_t * __restrict__ expert_bounds,
 }
 
 template <int TileN, int BaseTileN>
-__global__ __launch_bounds__(kThreads, 2)
+__global__ __launch_bounds__(kThreads, DS4_SM121_D2R_MIN_BLOCKS)
 void down_q2k_d2r_kernel(const void * __restrict__ W_soa,
                          const block_q8_1_mmq * __restrict__ q8,
                          const int32_t * __restrict__ ids_dst,
@@ -2391,7 +2392,7 @@ void down_q2k_d2r_kernel(const void * __restrict__ W_soa,
 #endif
 }
 
-__global__ __launch_bounds__(kThreads, 2)
+__global__ __launch_bounds__(kThreads, DS4_SM121_D2R_MIN_BLOCKS)
 void gateup_iq2_d2r_pair_kernel(const void * __restrict__ gate_soa,
                                 const void * __restrict__ up_soa,
                                 const block_q8_1_mmq * __restrict__ q8,
@@ -2520,7 +2521,7 @@ void gateup_iq2_d2r_pair_kernel(const void * __restrict__ gate_soa,
 }
 
 template <int TileN, int BaseTileN>
-__global__ __launch_bounds__(kThreads, 2)
+__global__ __launch_bounds__(kThreads, DS4_SM121_D2R_MIN_BLOCKS)
 void gateup_iq2_swiglu_q8_d2r_kernel(
         const void * __restrict__ gate_soa,
         const void * __restrict__ up_soa,

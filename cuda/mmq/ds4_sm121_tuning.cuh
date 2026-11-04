@@ -9,6 +9,24 @@
 extern "C" {
 #endif
 
+/* Architecture constants for NVIDIA Grace Blackwell GB10 (SM 12.1 / compute capability 12.1 = 1210) */
+#define DS4_GB10_NUM_SMS                48
+#define DS4_GB10_MAX_SMEM_PER_SM        (99 * 1024)   /* ~99-100 KB shared memory per SM */
+#define DS4_GB10_REGS_PER_SM            65536         /* 64K 32-bit registers per SM */
+
+/* Calibrated launch bounds for Blackwell SM121 / SM120:
+ * At kThreads=256, minBlocks=2 rigidly caps registers to 65536 / 512 = 128 regs/thread,
+ * which forces ptxas to spill 212+ bytes into local stack/DRAM in complex MoE D2R kernels.
+ * On SM121 (48 SMs), minBlocks=1 allows ptxas to allocate up to 255 registers per thread,
+ * completely eliminating register spills (0 bytes spill stores, 0 bytes spill loads). */
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
+#define DS4_SM121_D2R_MIN_BLOCKS        1
+#define DS4_SM121_MMVQ_MIN_BLOCKS       1
+#else
+#define DS4_SM121_D2R_MIN_BLOCKS        2
+#define DS4_SM121_MMVQ_MIN_BLOCKS       1
+#endif
+
 /* Set persisting L2 cache window on Blackwell GB10 / SM121 for hot drafter sub-tensors.
  * Safely clamps size_bytes to the device's persistingL2CacheMaxSize to prevent cache thrashing. */
 static inline int ds4_cuda_sm121_pin_drafter_l2(const void *drafter_weights,

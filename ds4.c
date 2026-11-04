@@ -74512,7 +74512,7 @@ static int ds4_engine_open_internal(ds4_engine **out,
                         "output may differ from one-token decode due "
                         "to batched floating-point operation order\n");
             }
-#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD)
+#if !defined(__APPLE__) && !defined(DS4_ROCM_BUILD) && !defined(DS4_NO_GPU)
             if (e->backend == DS4_BACKEND_CUDA && ds4_gpu_device_is_spark()) {
                 ds4_gpu_sm121_tune_dspark_l2(e->mtp_model.map, e->mtp_model.size);
             }

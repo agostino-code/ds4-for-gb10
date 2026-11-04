@@ -25,6 +25,8 @@
 #include "quantize.cuh"
 #include "mmid.cuh"
 #include "ds4_mmq_d2r.cuh"
+#include "ds4_sm121_tuning.cuh"
+#include "mmvq.cuh"
 
 #include <cstdio>
 #include <cstdlib>
@@ -1003,6 +1005,17 @@ bool ds4_mmq_k_tile_supported(const char *tag, int K, int cc) {
 }
 
 template <ggml_type type>
+int ds4_mmq_dense_vec_impl(
+        const char  * tag,
+        const void  * W,
+        const float * X_f32,
+        float       * out_f32,
+        int           M,
+        int           N,
+        int           K,
+        cudaStream_t  stream);
+
+template <ggml_type type>
 int ds4_mmq_dense_impl(
         const char  * tag,
         const void  * W,
@@ -1036,6 +1049,19 @@ int ds4_mmq_dense_impl(
     if (!ctx) {
         fprintf(stderr, "%s: failed to get cuda context for device %d\n", tag, dev);
         return -1;
+    }
+
+    if constexpr (type == GGML_TYPE_Q8_0) {
+#ifndef GGML_USE_HIP
+        const bool exact_gemv = ds4_mmq_q8_0_exact_gemv_ok(dev, W, M, N, K);
+        if (!exact_gemv && N <= MMVQ_MAX_BATCH_SIZE) {
+            return ds4_mmq_dense_vec_impl<GGML_TYPE_Q8_0>(tag, W, X_f32, out_f32, M, N, K, stream);
+        }
+#else
+        if (N <= MMVQ_MAX_BATCH_SIZE) {
+            return ds4_mmq_dense_vec_impl<GGML_TYPE_Q8_0>(tag, W, X_f32, out_f32, M, N, K, stream);
+        }
+#endif
     }
 
     /* Task #22 fix: order the pool's cudaMallocAsync/cudaFreeAsync on the SAME
