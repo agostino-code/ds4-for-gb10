@@ -3224,18 +3224,24 @@ __device__ __forceinline__ void dq8_mainloop(
             const float dwr1 = t ? dw1.y : dw1.x;
 #pragma unroll
             for (int nf = 0; nf < kDqNFragPerWarp; ++nf) {
+                // Hoist scale loads and pre-multiplications out of inner accumulator
+                const float da0 = s_q8h[hbuf][(nf0 + nf) * 8 + c0][tq8];
+                const float da1 = s_q8h[hbuf][(nf0 + nf) * 8 + c1][tq8];
+                const float s00 = dwr0 * da0;
+                const float s01 = dwr0 * da1;
+                const float s10 = dwr1 * da0;
+                const float s11 = dwr1 * da1;
+
                 TileB B;
                 TileC C;
                 ggml_cuda_mma::load_ldmatrix(
                     B, reinterpret_cast<const int *>(&s_q8q[qbuf][(nf0 + nf) * 8][t * 32]),
                     kDqRowPad / (int)sizeof(int));
                 ggml_cuda_mma::mma(C, A, B);
-                const float da0 = s_q8h[hbuf][(nf0 + nf) * 8 + c0][tq8];
-                const float da1 = s_q8h[hbuf][(nf0 + nf) * 8 + c1][tq8];
-                acc[nf][0] = fmaf((float)C.x[0], dwr0 * da0, acc[nf][0]);
-                acc[nf][1] = fmaf((float)C.x[1], dwr0 * da1, acc[nf][1]);
-                acc[nf][2] = fmaf((float)C.x[2], dwr1 * da0, acc[nf][2]);
-                acc[nf][3] = fmaf((float)C.x[3], dwr1 * da1, acc[nf][3]);
+                acc[nf][0] = fmaf((float)C.x[0], s00, acc[nf][0]);
+                acc[nf][1] = fmaf((float)C.x[1], s01, acc[nf][1]);
+                acc[nf][2] = fmaf((float)C.x[2], s10, acc[nf][2]);
+                acc[nf][3] = fmaf((float)C.x[3], s11, acc[nf][3]);
             }
         }
     }

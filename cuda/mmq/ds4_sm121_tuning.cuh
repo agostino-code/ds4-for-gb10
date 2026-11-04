@@ -82,6 +82,32 @@ static inline size_t ds4_cuda_sm121_pad_vt_stride(size_t stride_bytes) {
 }
 
 #ifdef __CUDACC__
+/* Direct non-coherent 128-bit global load (L2 bypass to registers for D2R weights) */
+__device__ __forceinline__ int4 ds4_sm121_ld_global_128_nc(const void *ptr) {
+    int4 ret;
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
+    asm volatile("ld.global.nc.v4.u32 {%0, %1, %2, %3}, [%4];"
+                 : "=r"(ret.x), "=r"(ret.y), "=r"(ret.z), "=r"(ret.w)
+                 : "l"(ptr));
+#else
+    ret = *reinterpret_cast<const int4 *>(ptr);
+#endif
+    return ret;
+}
+
+/* Direct non-coherent 64-bit global load */
+__device__ __forceinline__ uint2 ds4_sm121_ld_global_64_nc(const void *ptr) {
+    uint2 ret;
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
+    asm volatile("ld.global.nc.v2.u32 {%0, %1}, [%2];"
+                 : "=r"(ret.x), "=r"(ret.y)
+                 : "l"(ptr));
+#else
+    ret = *reinterpret_cast<const uint2 *>(ptr);
+#endif
+    return ret;
+}
+
 /* Native INT4 Tensor Core MMA wrapper for SM121 (Mishra / W4A4 COLM 2026 paper):
  * mma.sync.aligned.m16n8k64.row.col.s32.s4.s4.s32 consumes packed INT4 weights
  * and per-token INT4 activations with INT32 accumulation. */
@@ -103,6 +129,58 @@ __device__ __forceinline__ void ds4_sm121_mma_m16n8k64_int4(
           "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
 #else
     d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
+#endif
+}
+
+/* Native MXF4 Block-Scaled Tensor Core MMA wrapper for SM121:
+ * mma.sync.aligned.kind::mxf4.block_scale.scale_vec::2X.m16n8k64.row.col.f32.e2m1.e2m1.f32.ue8m0
+ * Consumes packed E2M1 weights and E2M1 activations with E8M0 block scales and FP32 accumulation. */
+__device__ __forceinline__ void ds4_sm121_mma_m16n8k64_mxf4(
+    float d[4],
+    const uint32_t a[4],
+    const uint32_t b[2],
+    const float c[4],
+    uint32_t a_scale,
+    uint32_t b_scale) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
+    asm volatile(
+        "mma.sync.aligned.kind::mxf4.block_scale.scale_vec::2X.m16n8k64.row.col.f32.e2m1.e2m1.f32.ue8m0 "
+        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, %13}, "
+        "%14, {0, 0}, %15, {0, 0};\n"
+        : "=f"(d[0]), "=f"(d[1]), "=f"(d[2]), "=f"(d[3])
+        : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
+          "r"(b[0]), "r"(b[1]),
+          "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]),
+          "r"(a_scale), "r"(b_scale));
+#else
+    d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
+    (void)a; (void)b; (void)a_scale; (void)b_scale;
+#endif
+}
+
+/* Native MXF8F6F4 Block-Scaled Tensor Core MMA wrapper for SM121:
+ * mma.sync.aligned.kind::mxf8f6f4.block_scale.scale_vec::1X.m16n8k32.row.col.f32.e4m3.e2m1.f32.ue8m0
+ * Consumes packed E4M3 activations and E2M1 weights with E8M0 block scales and FP32 accumulation. */
+__device__ __forceinline__ void ds4_sm121_mma_m16n8k32_mxf8f6f4(
+    float d[4],
+    const uint32_t a[4],
+    const uint32_t b[2],
+    const float c[4],
+    uint32_t a_scale,
+    uint32_t b_scale) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
+    asm volatile(
+        "mma.sync.aligned.kind::mxf8f6f4.block_scale.scale_vec::1X.m16n8k32.row.col.f32.e4m3.e2m1.f32.ue8m0 "
+        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, %13}, "
+        "%14, {0, 0}, %15, {0, 0};\n"
+        : "=f"(d[0]), "=f"(d[1]), "=f"(d[2]), "=f"(d[3])
+        : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
+          "r"(b[0]), "r"(b[1]),
+          "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]),
+          "r"(a_scale), "r"(b_scale));
+#else
+    d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
+    (void)a; (void)b; (void)a_scale; (void)b_scale;
 #endif
 }
 #endif

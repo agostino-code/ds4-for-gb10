@@ -4748,21 +4748,23 @@ __global__ void q8_0_aligned_dense_vec_kernel(
         const int b = b0 + lane;
         const int4 w0 = qs[(rbase + b) * 2 + 0];   // aligned 16B loads
         const int4 w1 = qs[(rbase + b) * 2 + 1];
-        const int *u = (const int *)x8[b].qs;
+        int4 u0, u1;
+        memcpy(&u0, &x8[b].qs[0], sizeof(int4));
+        memcpy(&u1, &x8[b].qs[16], sizeof(int4));
         int sumi = 0;
-        sumi = ggml_cuda_dp4a(w0.x, u[0], sumi);
-        sumi = ggml_cuda_dp4a(w0.y, u[1], sumi);
-        sumi = ggml_cuda_dp4a(w0.z, u[2], sumi);
-        sumi = ggml_cuda_dp4a(w0.w, u[3], sumi);
-        sumi = ggml_cuda_dp4a(w1.x, u[4], sumi);
-        sumi = ggml_cuda_dp4a(w1.y, u[5], sumi);
-        sumi = ggml_cuda_dp4a(w1.z, u[6], sumi);
-        sumi = ggml_cuda_dp4a(w1.w, u[7], sumi);
+        sumi = ggml_cuda_dp4a(w0.x, u0.x, sumi);
+        sumi = ggml_cuda_dp4a(w0.y, u0.y, sumi);
+        sumi = ggml_cuda_dp4a(w0.z, u0.z, sumi);
+        sumi = ggml_cuda_dp4a(w0.w, u0.w, sumi);
+        sumi = ggml_cuda_dp4a(w1.x, u1.x, sumi);
+        sumi = ggml_cuda_dp4a(w1.y, u1.y, sumi);
+        sumi = ggml_cuda_dp4a(w1.z, u1.z, sumi);
+        sumi = ggml_cuda_dp4a(w1.w, u1.w, sumi);
         acc += __half2float(dq[rbase + b]) * __low2float(x8[b].ds) * (float)sumi;
     }
 #pragma unroll
     for (int off = 16; off > 0; off >>= 1)
-        acc += __shfl_down_sync(0xffffffffu, acc, off);
+        acc += __shfl_xor_sync(0xffffffffu, acc, off);
     if (lane == 0) out[row] = acc;
 }
 
@@ -4798,16 +4800,18 @@ __global__ void q8_0_aligned_dense_vec_nc_kernel(
 #pragma unroll
         for (int c = 0; c < NC; c++) {
             const block_q8_1 *xb = &x8[(size_t)c * nb + b];
-            const int *u = (const int *)xb->qs;
+            int4 u0, u1;
+            memcpy(&u0, &xb->qs[0], sizeof(int4));
+            memcpy(&u1, &xb->qs[16], sizeof(int4));
             int sumi = 0;
-            sumi = ggml_cuda_dp4a(w0.x, u[0], sumi);
-            sumi = ggml_cuda_dp4a(w0.y, u[1], sumi);
-            sumi = ggml_cuda_dp4a(w0.z, u[2], sumi);
-            sumi = ggml_cuda_dp4a(w0.w, u[3], sumi);
-            sumi = ggml_cuda_dp4a(w1.x, u[4], sumi);
-            sumi = ggml_cuda_dp4a(w1.y, u[5], sumi);
-            sumi = ggml_cuda_dp4a(w1.z, u[6], sumi);
-            sumi = ggml_cuda_dp4a(w1.w, u[7], sumi);
+            sumi = ggml_cuda_dp4a(w0.x, u0.x, sumi);
+            sumi = ggml_cuda_dp4a(w0.y, u0.y, sumi);
+            sumi = ggml_cuda_dp4a(w0.z, u0.z, sumi);
+            sumi = ggml_cuda_dp4a(w0.w, u0.w, sumi);
+            sumi = ggml_cuda_dp4a(w1.x, u1.x, sumi);
+            sumi = ggml_cuda_dp4a(w1.y, u1.y, sumi);
+            sumi = ggml_cuda_dp4a(w1.z, u1.z, sumi);
+            sumi = ggml_cuda_dp4a(w1.w, u1.w, sumi);
             acc[c] += dw * __low2float(xb->ds) * (float)sumi;
         }
     }
@@ -4815,7 +4819,7 @@ __global__ void q8_0_aligned_dense_vec_nc_kernel(
     for (int c = 0; c < NC; c++) {
 #pragma unroll
         for (int off = 16; off > 0; off >>= 1)
-            acc[c] += __shfl_down_sync(0xffffffffu, acc[c], off);
+            acc[c] += __shfl_xor_sync(0xffffffffu, acc[c], off);
         if (lane == 0) out[(size_t)c * M + row] = acc[c];
     }
 }
@@ -4866,22 +4870,24 @@ __global__ void q8_0_aligned_dense_vec_pair_kernel(
         const int b = b0 + lane;
         const int4 w0 = qs[(rbase + b) * 2 + 0];
         const int4 w1 = qs[(rbase + b) * 2 + 1];
-        const int *u = (const int *)x8[b].qs;
+        int4 u0, u1;
+        memcpy(&u0, &x8[b].qs[0], sizeof(int4));
+        memcpy(&u1, &x8[b].qs[16], sizeof(int4));
         int sumi = 0;
-        sumi = ggml_cuda_dp4a(w0.x, u[0], sumi);
-        sumi = ggml_cuda_dp4a(w0.y, u[1], sumi);
-        sumi = ggml_cuda_dp4a(w0.z, u[2], sumi);
-        sumi = ggml_cuda_dp4a(w0.w, u[3], sumi);
-        sumi = ggml_cuda_dp4a(w1.x, u[4], sumi);
-        sumi = ggml_cuda_dp4a(w1.y, u[5], sumi);
-        sumi = ggml_cuda_dp4a(w1.z, u[6], sumi);
-        sumi = ggml_cuda_dp4a(w1.w, u[7], sumi);
+        sumi = ggml_cuda_dp4a(w0.x, u0.x, sumi);
+        sumi = ggml_cuda_dp4a(w0.y, u0.y, sumi);
+        sumi = ggml_cuda_dp4a(w0.z, u0.z, sumi);
+        sumi = ggml_cuda_dp4a(w0.w, u0.w, sumi);
+        sumi = ggml_cuda_dp4a(w1.x, u1.x, sumi);
+        sumi = ggml_cuda_dp4a(w1.y, u1.y, sumi);
+        sumi = ggml_cuda_dp4a(w1.z, u1.z, sumi);
+        sumi = ggml_cuda_dp4a(w1.w, u1.w, sumi);
         acc += __half2float(dq[rbase + b]) *
                __low2float(x8[b].ds) * (float)sumi;
     }
 #pragma unroll
     for (int off = 16; off > 0; off >>= 1) {
-        acc += __shfl_down_sync(0xffffffffu, acc, off);
+        acc += __shfl_xor_sync(0xffffffffu, acc, off);
     }
     if (lane == 0) (second ? out1 : out0)[row] = acc;
 }
