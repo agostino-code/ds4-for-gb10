@@ -33,10 +33,6 @@
 #include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#if defined(__APPLE__)
-#include <dispatch/dispatch.h>
-#include <sys/sysctl.h>
-#endif
 #include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
@@ -49,14 +45,7 @@
 #include "ds4_tp.h"
 #if !defined(DS4_NO_GPU)
 #define DS4_HAS_DEEPSEEK41_GPU 1
-#endif
-#if !defined(DS4_NO_GPU) && !defined(DS4_ROCM_BUILD)
 #define DS4_HAS_QWEN4_GPU 1
-#ifdef __APPLE__
-#define DS4_HAS_QWEN4_METAL 1
-#endif
-#endif
-#if defined(DS4_ROCM_BUILD) || (!defined(__APPLE__) && !defined(DS4_NO_GPU))
 #include "ds4_linux_memory.h"
 #endif
 
@@ -443,42 +432,23 @@ static bool ds4_backend_supports_ssd_streaming(ds4_backend backend) {
 }
 
 static bool ds4_backend_supports_streaming_auto_cache(ds4_backend backend) {
-    if (backend == DS4_BACKEND_METAL) return true;
-#ifdef DS4_ROCM_BUILD
-    if (backend == DS4_BACKEND_CUDA) return true;
-#else
     (void)backend;
-#endif
     return false;
 }
 
 static bool ds4_backend_supports_glm_streaming_full_layers(ds4_backend backend) {
-    if (backend == DS4_BACKEND_METAL) return true;
-#ifdef DS4_ROCM_BUILD
-    if (backend == DS4_BACKEND_CUDA) return true;
-#else
     (void)backend;
-#endif
     return false;
 }
 
 static bool glm_graph_env_present(const char *rocm_name, const char *metal_name) {
-#ifdef DS4_ROCM_BUILD
-    if (rocm_name && getenv(rocm_name) != NULL) return true;
-#else
     (void)rocm_name;
-#endif
     return metal_name && getenv(metal_name) != NULL;
 }
 
 static const char *glm_graph_env_value(const char *rocm_name,
                                        const char *metal_name) {
-#ifdef DS4_ROCM_BUILD
-    const char *rocm_env = rocm_name ? getenv(rocm_name) : NULL;
-    if (rocm_env && rocm_env[0]) return rocm_env;
-#else
     (void)rocm_name;
-#endif
     const char *metal_env = metal_name ? getenv(metal_name) : NULL;
     return (metal_env && metal_env[0]) ? metal_env : NULL;
 }

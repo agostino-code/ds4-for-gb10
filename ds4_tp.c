@@ -29,7 +29,8 @@
 #include "ds4_tp.h"
 #include "ds4_gpu.h"
 
-#if (defined(__APPLE__) || defined(__linux__)) && defined(__has_include)
+/* Single-node DGX Spark unified memory execution: remote verbs/RDMA transport disabled */
+#if 0 && (defined(__APPLE__) || defined(__linux__)) && defined(__has_include)
 #if __has_include(<infiniband/verbs.h>)
 #include <infiniband/verbs.h>
 #include <dlfcn.h>
