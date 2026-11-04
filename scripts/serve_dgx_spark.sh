@@ -35,6 +35,7 @@ fi
 # 3. Enable Blackwell SM121 runtime optimizations
 export DS4_CUDA_FP4_INDEX=1
 export DS4_CONT_CAPTURE=1
+export DS4_CUDA_DIRECT_MODEL=1
 
 # 4. Check drafter for DSpark Speculation
 DRAFTER_FLAG=""
