@@ -23,6 +23,19 @@ typedef enum {
 
 bool ds4_cuda_is_spark_fastpath_enabled(int model_arch, int compute_cap);
 
+/* DSpark speculative decoding & yield-quench controller */
+struct dspark_controller {
+    float guard;            /* break-even threshold (e.g. 2.16 for 0731 weights) */
+    float regret_accum;     /* cumulative deficit sum(guard - accepted) */
+    float regret_threshold; /* threshold to quench (~8.0 = 4 plain step penalties) */
+    int k_draft;            /* draft width (default 4) */
+    bool quenched;          /* terminal quench flag */
+};
+
+void dspark_init(struct dspark_controller *c, float guard, int k_draft);
+bool dspark_step_should_speculate(struct dspark_controller *c);
+void dspark_update(struct dspark_controller *c, int accepted_tokens);
+
 /* Public engine boundary.
  *
  * The CLI and server should treat ds4_engine as the loaded model and
