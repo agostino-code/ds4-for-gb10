@@ -8,6 +8,21 @@
 
 #include "ds4_ssd.h"
 
+/* Model families & routing */
+typedef enum {
+    DS4_MODEL_FAMILY_DEEPSEEK4 = 0,
+    DS4_MODEL_FAMILY_GLM_DSA   = 1,
+    DS4_MODEL_FAMILY_DEEPSEEK41 = 2,
+    DS4_MODEL_FAMILY_QWEN4_EXP = 3,
+} ds4_model_family;
+
+#define MODEL_TYPE_DEEPSEEK4 DS4_MODEL_FAMILY_DEEPSEEK4
+#define MODEL_TYPE_GLM53     DS4_MODEL_FAMILY_GLM_DSA
+#define MODEL_TYPE_DEEPSEEK41 DS4_MODEL_FAMILY_DEEPSEEK41
+#define MODEL_TYPE_QWEN38    DS4_MODEL_FAMILY_QWEN4_EXP
+
+bool ds4_cuda_is_spark_fastpath_enabled(int model_arch, int compute_cap);
+
 /* Public engine boundary.
  *
  * The CLI and server should treat ds4_engine as the loaded model and
