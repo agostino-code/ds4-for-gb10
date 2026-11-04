@@ -28,6 +28,18 @@ int main(void) {
     assert(!ds4_ssd_auto_cache_plan(gib, 86, 0, 0, 0, 0, &p));
     assert(!ds4_ssd_auto_cache_plan(gib, 100, 0, 0, gib, 0, &p));
     unsetenv("DS4_SSD_AUTO_CACHE_PCT");
+
+    // Direct I/O 4096-byte alignment checks
+    char aligned_buffer[8192] __attribute__((aligned(4096)));
+    assert(ds4_ssd_is_direct_io_aligned(4096, 4096, aligned_buffer) == true);
+    assert(ds4_ssd_is_direct_io_aligned(4095, 4096, aligned_buffer) == false);
+    assert(ds4_ssd_is_direct_io_aligned(4096, 4095, aligned_buffer) == false);
+    assert(ds4_ssd_is_direct_io_aligned(4096, 4096, aligned_buffer + 1) == false);
+
+    // Spark unified memory budget clamp
+    uint64_t clamped = ds4_ssd_clamp_to_spark_unified_budget(50 * gib);
+    assert(clamped <= 50 * gib);
+
     puts("SSD cache sizing: PASS");
     return 0;
 }

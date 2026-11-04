@@ -1,4 +1,5 @@
 #include "ds4_ssd.h"
+#include "ds4_linux_memory.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -212,4 +213,23 @@ void ds4_ssd_memory_lock_release(ds4_ssd_memory_lock *lock) {
     munmap(lock->ptr, (size_t)lock->bytes);
     lock->ptr = NULL;
     lock->bytes = 0;
+}
+
+int ds4_ssd_drop_page_cache(int fd, uint64_t offset, uint64_t bytes) {
+    return ds4_linux_fadvise_dontneed(fd, offset, bytes);
+}
+
+bool ds4_ssd_is_direct_io_aligned(uint64_t offset, size_t bytes, const void *buf) {
+    if (!buf) return false;
+    return (offset & 4095u) == 0 &&
+           (bytes & 4095u) == 0 &&
+           (((uintptr_t)buf) & 4095u) == 0;
+}
+
+uint64_t ds4_ssd_clamp_to_spark_unified_budget(uint64_t requested_bytes) {
+    uint64_t safe_budget = 0;
+    if (ds4_linux_spark_anti_thrashing_check(requested_bytes, &safe_budget)) {
+        return requested_bytes;
+    }
+    return safe_budget;
 }
