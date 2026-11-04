@@ -1411,7 +1411,11 @@ static byte_buf i64_to_i32(const st_value *src) {
 
 static size_t tensor_nbytes(ds4q_type type, const int64_t *ne, int n_dims) {
     size_t nbytes = ds4q_row_size(type, ne[0]);
-    for (int i = 1; i < n_dims; i++) nbytes *= (size_t)ne[i];
+    for (int i = 1; i < n_dims; i++) {
+        if (ne[i] < 0 || __builtin_mul_overflow(nbytes, (size_t)ne[i], &nbytes)) {
+            die("tensor dimension overflow in tensor_nbytes");
+        }
+    }
     return nbytes;
 }
 

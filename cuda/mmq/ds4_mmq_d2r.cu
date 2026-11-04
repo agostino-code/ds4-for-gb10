@@ -3379,3 +3379,78 @@ extern "C" int ds4_mmq_q8_0_dense_d2r_launch(
     }
     return 0;
 }
+
+// Riduzione warp-level senza uso di shared memory per bassa latenza in decode su SM121
+__device__ __forceinline__ float ds4_warp_reduce_sum(float val) {
+    #pragma unroll
+    for (int offset = DS4_SM121_WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        val += __shfl_xor_sync(0xffffffffu, val, offset);
+    }
+    return val;
+}
+
+// Kernel D2R (Dequantize-to-Register) allineato a 128-bit con Register Reuse
+// per moltiplicazione Matrice-Vettore / Small-Batch su sm_121
+template <int BLOCK_WARPS>
+__global__ void __launch_bounds__(BLOCK_WARPS * 32, 2)
+ds4_gemv_q8_d2r_sm121_kernel(
+    const int4 * __restrict__ weights_soa_q8, // Quanti Q8 impacchettati e allineati a 128B
+    const half * __restrict__ weights_scales, // Scale FP16 contigue (SOA)
+    const int4 * __restrict__ input_q8_1,     // Attivazioni quantizzate Q8_1
+    const half2 * __restrict__ input_ds,      // Scale e somme Q8_1
+    float * __restrict__ output,
+    const int M, const int N_batches, const int K_vec16)
+{
+    const int warp_id = threadIdx.y;
+    const int lane_id = threadIdx.x;
+    const int row = blockIdx.x * BLOCK_WARPS + warp_id;
+
+    if (row >= M) return;
+
+    // Accumulatori in registro per riutilizzo dei pesi su più token (Register Reuse)
+    float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    const int batch_limit = (N_batches <= 4) ? N_batches : 4;
+
+    const int4 * row_w = weights_soa_q8 + (size_t)row * K_vec16;
+    const half * row_s = weights_scales + (size_t)row * (K_vec16 / 2);
+
+    for (int k = lane_id; k < K_vec16; k += DS4_SM121_WARP_SIZE) {
+        // 1. Caricamento vettorizzato a 128-bit (16 pesi int8) una sola volta nei registri
+        const int4 w_pack = ds4_ldg_vec128(&row_w[k]);
+        const float w_scale = __half2float(__ldg(&row_s[k >> 1]));
+
+        // 2. Riutilizzo dei pesi in registro lungo la dimensione batch/token
+        #pragma unroll
+        for (int b = 0; b < 4; ++b) {
+            if (b < batch_limit) {
+                const int4 x_pack = ds4_ldg_vec128(&input_q8_1[(size_t)b * K_vec16 + k]);
+                const float x_scale = __half2float(__low2half(__ldg(&input_ds[(size_t)b * (K_vec16 / 2) + (k >> 1)])));
+
+                int dp = 0;
+                dp = __dp4a(w_pack.x, x_pack.x, dp);
+                dp = __dp4a(w_pack.y, x_pack.y, dp);
+                dp = __dp4a(w_pack.z, x_pack.z, dp);
+                dp = __dp4a(w_pack.w, x_pack.w, dp);
+
+                acc[b] = __fmaf_rn((float)dp, w_scale * x_scale, acc[b]);
+            }
+        }
+    }
+
+    // 3. Riduzione in-register tramite shuffle e scrittura coalescente
+    #pragma unroll
+    for (int b = 0; b < 4; ++b) {
+        if (b < batch_limit) {
+            float sum = ds4_warp_reduce_sum(acc[b]);
+            if (lane_id == 0) {
+                output[(size_t)b * M + row] = sum;
+            }
+        }
+    }
+}
+
+// Explicit instantiation for 8 warps per block
+template __global__ void ds4_gemv_q8_d2r_sm121_kernel<8>(
+    const int4 * __restrict__, const half * __restrict__,
+    const int4 * __restrict__, const half2 * __restrict__,
+    float * __restrict__, const int, const int, const int);

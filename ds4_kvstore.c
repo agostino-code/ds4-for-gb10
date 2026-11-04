@@ -90,7 +90,10 @@ static void kv_buf_reserve(kv_buf *b, size_t add) {
     size_t need = b->len + add + 1;
     if (need <= b->cap) return;
     size_t cap = b->cap ? b->cap * 2 : 256;
-    while (cap < need) cap *= 2;
+    while (cap < need) {
+        if (cap > SIZE_MAX / 2) { cap = need; break; }
+        cap *= 2;
+    }
     b->ptr = kv_xrealloc(b->ptr, cap);
     b->cap = cap;
 }

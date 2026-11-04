@@ -15086,7 +15086,7 @@ static bool read_http_request(int fd, http_request *r) {
     if (q) *q = '\0';
 
     long clen = content_length(b.ptr, (size_t)hend);
-    if (clen < 0 || (size_t)clen > max_body) goto fail;
+    if (clen < 0 || (size_t)clen > max_body || (size_t)hend > SIZE_MAX - (size_t)clen) goto fail;
     while (b.len < (size_t)hend + (size_t)clen) {
         char tmp[8192];
         ssize_t n = recv(fd, tmp, sizeof(tmp), 0);

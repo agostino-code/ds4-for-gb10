@@ -112,6 +112,7 @@ static bool g_network_tp_sharding_suspended;
 static ds4_gpu_tensor *g_network_tp_pairs;
 static cudaStream_t g_model_prefetch_stream;
 static cudaStream_t g_model_upload_stream;
+static cudaEvent_t g_ev_stream_upload_done = NULL;
 static int g_cublas_ready;
 static int g_quality_mode;
 static int g_decode_fast_attention;
@@ -2306,7 +2307,11 @@ static int cuda_model_stage_read_from(int fd, int *direct_fd, uint64_t align,
     (void)stage_bytes;
     (void)direct_fd; (void)align; (void)file_size;
 #endif
-    return cuda_pread_full(fd, stage, bytes, offset);
+    const int read_ok = cuda_pread_full(fd, stage, bytes, offset);
+    if (read_ok) {
+        ds4_linux_fadvise_dontneed(fd, offset, bytes);
+    }
+    return read_ok;
 }
 
 static int cuda_model_stage_read(void *stage, uint64_t stage_bytes,
@@ -29010,8 +29015,16 @@ struct cuda_stream_upload_batch {
     int finish() {
         if (!active) return 1;
         active = false;
-        if (!g_stream_selected_upload_stream || cuda_ok(
-                cudaStreamSynchronize(g_stream_selected_upload_stream), "stream expert batch upload"))
+        if (!g_stream_selected_upload_stream) return 1;
+        if (g_ev_stream_upload_done == NULL) {
+            (void)cudaEventCreateWithFlags(&g_ev_stream_upload_done, cudaEventDisableTiming);
+        }
+        if (g_ev_stream_upload_done) {
+            const cudaError_t e1 = cudaEventRecord(g_ev_stream_upload_done, g_stream_selected_upload_stream);
+            const cudaError_t e2 = cudaStreamWaitEvent(cuda_decode_stream(), g_ev_stream_upload_done, 0);
+            if (e1 == cudaSuccess && e2 == cudaSuccess) return 1;
+        }
+        if (cuda_ok(cudaStreamSynchronize(g_stream_selected_upload_stream), "stream expert batch upload"))
             return 1;
         /* A failed asynchronous copy must not turn into a cache hit later. */
         ds4_gpu_stream_expert_cache_prefetch_finish(true);

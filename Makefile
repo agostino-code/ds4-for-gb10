@@ -7,8 +7,8 @@ GLM53_KDA_TEST := tests/test_glm53_kda
 QWEN4_KERNEL_TEST := tests/test_qwen4_kernels
 
 DEBUG_FLAGS ?= -g
-CFLAGS ?= -O3 -ffast-math $(DEBUG_FLAGS) $(NATIVE_CPU_FLAG) -Wall -Wextra -std=c99 -D_GNU_SOURCE -fno-finite-math-only
-QUALITY_CFLAGS ?= -O3 $(DEBUG_FLAGS) $(NATIVE_CPU_FLAG) -Wall -Wextra -std=c11
+CFLAGS ?= -O3 -ffast-math $(DEBUG_FLAGS) $(NATIVE_CPU_FLAG) -Wall -Wextra -std=c99 -D_GNU_SOURCE -fno-finite-math-only -fstack-protector-strong -D_FORTIFY_SOURCE=2 -DDS4_TARGET_SM121=1 -DDS4_UNIFIED_MEMORY=1
+QUALITY_CFLAGS ?= -O3 $(DEBUG_FLAGS) $(NATIVE_CPU_FLAG) -Wall -Wextra -std=c11 -fstack-protector-strong -D_FORTIFY_SOURCE=2
 
 LDLIBS ?= -lm -pthread
 DS4_TEST_MODEL ?= ds4flash.gguf
@@ -29,9 +29,9 @@ ifneq ($(strip $(CUDA_ARCH)),)
 ifneq ($(filter sm_120 sm_120a,$(strip $(CUDA_ARCH))),)
 NVCC_ARCH_FLAGS := -gencode arch=compute_120a,code=sm_120a -DDS4_CUDA_HAVE_MXF4=1
 else ifneq ($(filter sm_121 sm_121a,$(strip $(CUDA_ARCH))),)
-NVCC_ARCH_FLAGS := -gencode arch=compute_121a,code=sm_121a -DDS4_CUDA_HAVE_MXF4=1 -DDS4_CUDA_FASTPATH_SPARK=1
+NVCC_ARCH_FLAGS := -gencode arch=compute_121a,code=sm_121a -gencode arch=compute_121a,code=compute_121a -DDS4_CUDA_HAVE_MXF4=1 -DDS4_CUDA_FASTPATH_SPARK=1 -DDS4_TARGET_SM121=1 -DDS4_USE_D2R=1
 CFLAGS += -DDS4_CUDA_FASTPATH_SPARK=1
-NVCC_PTXAS_FLAGS ?= -Xptxas -v
+NVCC_PTXAS_FLAGS ?= -Xptxas -v,-dlcm=ca --extra-device-vectorization
 else
 NVCC_ARCH_FLAGS := -arch=$(CUDA_ARCH)
 endif

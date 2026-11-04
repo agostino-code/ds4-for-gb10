@@ -14,6 +14,28 @@ extern "C" {
 #define DS4_GB10_MAX_SMEM_PER_SM        (99 * 1024)   /* ~99-100 KB shared memory per SM */
 #define DS4_GB10_REGS_PER_SM            65536         /* 64K 32-bit registers per SM */
 
+// Allineamento delle transazioni di memoria globale e dei tile SOA (128 byte)
+#define DS4_SM121_MEM_ALIGN          128
+#define DS4_SM121_CACHELINE_BYTES    128
+#define DS4_SM121_WARP_SIZE          32
+
+// Configurazione Block / Warp per kernel MMQ e D2R (Dequantize-to-Register)
+#define DS4_SM121_MMQ_WARPS_PER_BLOCK  8
+#define DS4_SM121_MMQ_THREADS_BLOCK    (DS4_SM121_MMQ_WARPS_PER_BLOCK * DS4_SM121_WARP_SIZE)
+#define DS4_SM121_MAX_REGISTERS        128
+
+// Dimensioni Tile MMQ (M, N, K) bilanciate per la banda LPDDR5X di DGX Spark
+#define DS4_SM121_TILE_M               64
+#define DS4_SM121_TILE_N               64
+#define DS4_SM121_TILE_K               64
+
+// Soglia batch (N_tokens) sotto la quale privilegiare D2R / MMVQ rispetto a MMQ
+#define DS4_SM121_D2R_MAX_BATCH        32
+#define DS4_SM121_MMVQ_MAX_BATCH       16
+
+// Padding in Shared Memory (in unità di 32-bit word) per eliminare i bank conflict
+#define DS4_SM121_SMEM_PAD             4
+
 /* Calibrated launch bounds for Blackwell SM121 / SM120:
  * At kThreads=256, minBlocks=2 rigidly caps registers to 65536 / 512 = 128 regs/thread,
  * which forces ptxas to spill 212+ bytes into local stack/DRAM in complex MoE D2R kernels.
@@ -82,6 +104,19 @@ static inline size_t ds4_cuda_sm121_pad_vt_stride(size_t stride_bytes) {
 }
 
 #ifdef __CUDACC__
+// Helper per caricamento vettorizzato a 128-bit con hint L2 cache persistence (128B cacheline)
+__device__ __forceinline__ int4 ds4_ldg_vec128(const void * __restrict__ ptr) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
+    int4 ret;
+    asm volatile("ld.global.nc.L2::128B.v4.s32 {%0, %1, %2, %3}, [%4];"
+                 : "=r"(ret.x), "=r"(ret.y), "=r"(ret.z), "=r"(ret.w)
+                 : "l"(ptr));
+    return ret;
+#else
+    return *reinterpret_cast<const int4 *>(ptr);
+#endif
+}
+
 /* Direct non-coherent 128-bit global load (L2 bypass to registers for D2R weights) */
 __device__ __forceinline__ int4 ds4_sm121_ld_global_128_nc(const void *ptr) {
     int4 ret;
