@@ -96,13 +96,37 @@ static inline bool ds4_linux_nonmovable_memory(uint64_t *bytes) {
 
 /* Anti-thrashing: evict page cache entries on Linux to prevent kernel page cache from filling 128 GB UMA */
 static inline int ds4_linux_fadvise_dontneed(int fd, uint64_t offset, uint64_t bytes) {
-    if (fd < 0 || bytes == 0) return 0;
+    if (fd < 0) return 0;
 #if defined(__linux__) && defined(POSIX_FADV_DONTNEED)
     return posix_fadvise(fd, (off_t)offset, (off_t)bytes, POSIX_FADV_DONTNEED);
 #else
     (void)fd; (void)offset; (void)bytes;
     return 0;
 #endif
+}
+
+// Rilascia immediatamente dalla RAM (Page Cache Linux) i file KV salvati su SSD
+static inline void ds4_ssd_evict_os_pagecache(int fd, size_t offset, size_t len) {
+    if (fd < 0) return;
+#if defined(__linux__)
+    // 1. Forza il flush dei blocchi sporchi sul disco NVMe
+    fdatasync(fd);
+    // 2. Ordina al kernel Linux di liberare subito la RAM occupata dalla cache del file
+    posix_fadvise(fd, (off_t)offset, (off_t)len, POSIX_FADV_DONTNEED);
+#else
+    (void)offset; (void)len;
+#endif
+}
+
+// Rilascia le pagine fisiche dei buffer temporanei dei sub-agenti senza deallocare lo spazio virtuale
+static inline void ds4_ram_quench_range(void *addr, size_t len) {
+    if (!addr || len == 0) return;
+    size_t page_aligned_len = len & ~(4095ULL);
+    if (page_aligned_len > 0) {
+#if defined(__linux__) && defined(MADV_DONTNEED)
+        madvise(addr, page_aligned_len, MADV_DONTNEED);
+#endif
+    }
 }
 
 /* 4096-byte page-aligned allocation for Zero-Copy DMA and direct I/O (O_DIRECT) */

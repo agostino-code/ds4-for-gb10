@@ -646,7 +646,8 @@ static int cuda_span_fully_replaced(
         for (const cuda_derived_range &r : g_derived_ranges) {
             if (r.host_base != model_map ||
                 (r.kind != CUDA_DERIVED_IQ2_XXS_ALIGNED_MOE &&
-                 r.kind != CUDA_DERIVED_Q2_K_ALIGNED_MOE)) {
+                 r.kind != CUDA_DERIVED_Q2_K_ALIGNED_MOE &&
+                 r.kind != CUDA_DERIVED_Q8_0_ALIGNED_DENSE)) {
                 continue;
             }
             const uint64_t r_end = r.source_offset + r.source_bytes;
@@ -5327,7 +5328,8 @@ extern "C" int ds4_gpu_model_range_replaced(
             range.source_offset == offset &&
             range.source_bytes == bytes &&
             (range.kind == CUDA_DERIVED_IQ2_XXS_ALIGNED_MOE ||
-             range.kind == CUDA_DERIVED_Q2_K_ALIGNED_MOE)) {
+             range.kind == CUDA_DERIVED_Q2_K_ALIGNED_MOE ||
+             range.kind == CUDA_DERIVED_Q8_0_ALIGNED_DENSE)) {
             return 1;
         }
     }

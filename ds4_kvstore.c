@@ -1,4 +1,5 @@
 #include "ds4_kvstore.h"
+#include "ds4_linux_memory.h"
 
 /* Shared disk KV checkpoint file support.
  *
@@ -459,6 +460,7 @@ bool ds4_kvstore_read_entry_file(const char *path, const char sha[41],
     ds4_kvstore_entry e = {0};
     uint32_t text_bytes = 0;
     bool ok = ds4_kvstore_read_header(fp, &e, &text_bytes);
+    ds4_ssd_evict_os_pagecache(fileno(fp), 0, 0);
     fclose(fp);
     if (!ok) return false;
     const uint64_t fixed = DS4_KVSTORE_FIXED_HEADER + 4ull;
@@ -506,6 +508,7 @@ bool ds4_kvstore_touch_file(const char *path, uint32_t hits) {
         ok = fseek(fp, 0, SEEK_SET) == 0 &&
              fwrite(h, 1, sizeof(h), fp) == sizeof(h);
     }
+    ds4_ssd_evict_os_pagecache(fileno(fp), 0, 0);
     fclose(fp);
     return ok;
 }
@@ -835,6 +838,7 @@ static bool kv_cache_file_text_matches(const char *path, const char sha[41],
         stored = kv_xmalloc((size_t)text_bytes + 1);
         ok = fread(stored, 1, text_bytes, fp) == text_bytes;
     }
+    ds4_ssd_evict_os_pagecache(fileno(fp), 0, 0);
     fclose(fp);
     if (!ok) {
         free(stored);
@@ -924,6 +928,7 @@ static void kv_cache_rewrite_trailer(ds4_kvstore *kc, const char *path,
                  fflush(fp) == 0;
         }
     }
+    ds4_ssd_evict_os_pagecache(fileno(fp), 0, 0);
     fclose(fp);
     (void)kc;
     (void)ok;
@@ -1099,6 +1104,7 @@ bool ds4_kvstore_store_live_prefix_text(ds4_kvstore *kc,
               kv_trailer_write(hooks, fp, text, &trailer_bytes) &&
               fflush(fp) == 0;
     int saved_errno = errno;
+    ds4_ssd_evict_os_pagecache(fileno(fp), 0, 0);
     if (fclose(fp) != 0) {
         if (!saved_errno) saved_errno = errno;
         ok = false;
@@ -1321,6 +1327,7 @@ int ds4_kvstore_try_load_text(ds4_kvstore *kc,
                 header_ok ? err : fail_reason,
                 (kv_now_sec() - load_t0) * 1000.0);
     }
+    ds4_ssd_evict_os_pagecache(fileno(fp), 0, 0);
     fclose(fp);
 
     if (loaded > 0) {
