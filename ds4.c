@@ -62883,9 +62883,13 @@ static void ds4_release_instance_lock(void) {
  * stale accidental second run is more dangerous than a normal CLI error. */
 static void ds4_acquire_instance_lock(void) {
     const char *path = getenv("DS4_LOCK_FILE");
-    if (!path || !path[0]) path = "/tmp/ds4.lock";
+    char user_lock[128];
+    if (!path || !path[0]) {
+        snprintf(user_lock, sizeof(user_lock), "/tmp/ds4_%u.lock", (unsigned)getuid());
+        path = user_lock;
+    }
 
-    const int fd = open(path, O_RDWR | O_CREAT, 0600);
+    const int fd = open(path, O_RDWR | O_CREAT, 0666);
     if (fd < 0) {
         fprintf(stderr, "ds4: failed to open lock file %s: %s\n", path, strerror(errno));
         exit(2);
