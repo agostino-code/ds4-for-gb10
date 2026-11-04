@@ -36,6 +36,10 @@ void dspark_init(struct dspark_controller *c, float guard, int k_draft);
 bool dspark_step_should_speculate(struct dspark_controller *c);
 void dspark_update(struct dspark_controller *c, int accepted_tokens);
 
+/* Prefix cache matching */
+size_t ds4_find_matching_prefix_length(const int *old_tokens, size_t old_len,
+                                       const int *new_tokens, size_t new_len);
+
 /* Public engine boundary.
  *
  * The CLI and server should treat ds4_engine as the loaded model and
