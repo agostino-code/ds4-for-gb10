@@ -2809,14 +2809,19 @@ static void parse_tensors(ds4_model *m, ds4_cursor *c) {
 
     for (uint64_t i = 0; i < m->n_tensors; i++) {
         ds4_tensor *t = &m->tensors[i];
-        if (t->rel_offset > UINT64_MAX - m->tensor_data_pos) {
-            ds4_die("tensor offset overflow");
+        if (__builtin_add_overflow(m->tensor_data_pos, t->rel_offset, &t->abs_offset)) {
+            ds4_die("tensor offset overflow in GGUF");
         }
-        t->abs_offset = m->tensor_data_pos + t->rel_offset;
-        if (t->bytes != 0 &&
-            (t->abs_offset > m->size || t->bytes > m->size - t->abs_offset))
-        {
-            ds4_die("tensor points outside GGUF file");
+        uint64_t tensor_end = 0;
+        if (t->bytes != 0) {
+            if (__builtin_add_overflow(t->abs_offset, t->bytes, &tensor_end) ||
+                tensor_end > m->size)
+            {
+                ds4_die("tensor points outside GGUF file");
+            }
+            if ((t->abs_offset & 31u) != 0) {
+                ds4_die("tensor offset is not 32-byte aligned for CUDA");
+            }
         }
         if (t->bytes > m->max_tensor_bytes) {
             m->max_tensor_bytes = t->bytes;

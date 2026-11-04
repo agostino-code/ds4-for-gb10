@@ -93,8 +93,14 @@ bool ds4_engram_table_open(ds4_engram_table *t, const char *path,
                            uint64_t offset, uint32_t rows) {
     if (!t) return false;
     *t = (ds4_engram_table){.fd = -1};
-    uint64_t bytes = (uint64_t)rows * DS4_ENGRAM_ROW_BYTES;
-    if (!path || !rows || offset > INT64_MAX || bytes > INT64_MAX - offset) {
+    uint64_t bytes = 0;
+    if (__builtin_mul_overflow((uint64_t)rows, (uint64_t)DS4_ENGRAM_ROW_BYTES, &bytes)) {
+        errno = EOVERFLOW;
+        return false;
+    }
+    uint64_t end_offset = 0;
+    if (!path || !rows || offset > INT64_MAX || bytes > INT64_MAX - offset ||
+        __builtin_add_overflow(offset, bytes, &end_offset)) {
         errno = EINVAL;
         return false;
     }
@@ -102,7 +108,7 @@ bool ds4_engram_table_open(ds4_engram_table *t, const char *path,
     if (fd < 0) return false;
     struct stat st;
     if (fstat(fd, &st) != 0) goto fail;
-    if (!S_ISREG(st.st_mode) || st.st_size < 0 || offset + bytes > (uint64_t)st.st_size) {
+    if (!S_ISREG(st.st_mode) || st.st_size < 0 || end_offset > (uint64_t)st.st_size) {
         errno = EINVAL;
         goto fail;
     }
@@ -188,7 +194,13 @@ bool ds4_engram_read(const ds4_engram_table *t, const uint32_t *rows,
     pthread_once(&engram_bf16_once, init_engram_bf16);
     uint8_t raw[DS4_ENGRAM_ROW_BYTES];
     for (size_t i = 0; i < count; i++) {
-        if (!read_row(t->fd, t->offset + (uint64_t)rows[i] * sizeof(raw), raw)) return false;
+        uint64_t row_bytes_total = 0, row_off = 0;
+        if (__builtin_mul_overflow((uint64_t)rows[i], (uint64_t)sizeof(raw), &row_bytes_total) ||
+            __builtin_add_overflow(t->offset, row_bytes_total, &row_off)) {
+            errno = EOVERFLOW;
+            return false;
+        }
+        if (!read_row(t->fd, row_off, raw)) return false;
         for (int j = 0; j < DS4_ENGRAM_DIM; j++) {
             const uint16_t value = engram_bf16[raw[DS4_ENGRAM_DIM + j / 32]][raw[j]];
             if (value == UINT16_MAX) {
