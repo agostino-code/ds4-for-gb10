@@ -27,7 +27,20 @@ fi
 
 mkdir -p "$KV_DIR"
 
-# 2. Configure Grace CPU performance core affinity (Cortex-X925)
+# 2. Check and disable earlyoom/systemd-oomd to prevent premature SIGKILL under 256K memory pressure
+if command -v systemctl >/dev/null 2>&1; then
+    if systemctl is-active --quiet earlyoom 2>/dev/null; then
+        echo ">>> Rilevato servizio 'earlyoom' attivo. Disabilitazione per prevenire kill su 256K context..."
+        sudo systemctl stop earlyoom 2>/dev/null || \
+            echo "Avviso: Impossibile arrestare earlyoom senza password sudo. Esegui 'sudo systemctl disable --now earlyoom'."
+    fi
+    if systemctl is-active --quiet systemd-oomd 2>/dev/null; then
+        echo ">>> Rilevato servizio 'systemd-oomd' attivo. Disabilitazione per prevenire kill su 256K context..."
+        sudo systemctl stop systemd-oomd 2>/dev/null || true
+    fi
+fi
+
+# 3. Configure Grace CPU performance core affinity (Cortex-X925)
 TASKSET_CMD=""
 if command -v taskset >/dev/null 2>&1; then
     TASKSET_CMD="taskset -c 5-9,15-19"
