@@ -12,6 +12,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 bool ds4_mmq_q2_K_moe_d2r_available(int cc);
 bool ds4_mmq_iq2_xxs_moe_d2r_available(int cc);
 
@@ -93,3 +97,7 @@ int ds4_mmq_iq2_xxs_moe_d2r_fused_launch(
     void          * worklist_scratch,
     size_t          worklist_scratch_bytes,
     cudaStream_t    stream);
+
+#ifdef __cplusplus
+}
+#endif

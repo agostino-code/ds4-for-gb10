@@ -2740,7 +2740,7 @@ static int64_t d2r_work_capacity(int64_t ncols_max, int n_experts) {
 
 } // namespace
 
-bool ds4_mmq_q2_K_moe_d2r_available(int cc) {
+extern "C" bool ds4_mmq_q2_K_moe_d2r_available(int cc) {
     static int cached_cc = -1;
     static int cached = 0;
     if (cached_cc != cc) {
@@ -2751,7 +2751,7 @@ bool ds4_mmq_q2_K_moe_d2r_available(int cc) {
     return cached != 0;
 }
 
-bool ds4_mmq_iq2_xxs_moe_d2r_available(int cc) {
+extern "C" bool ds4_mmq_iq2_xxs_moe_d2r_available(int cc) {
     static int cached_cc = -1;
     static int cached = 0;
     if (cached_cc != cc) {
@@ -2762,7 +2762,7 @@ bool ds4_mmq_iq2_xxs_moe_d2r_available(int cc) {
     return cached != 0;
 }
 
-size_t ds4_mmq_q2_K_moe_d2r_scratch_bytes(int64_t ncols_max, int n_experts) {
+extern "C" size_t ds4_mmq_q2_K_moe_d2r_scratch_bytes(int64_t ncols_max, int n_experts) {
     const int64_t capacity = d2r_work_capacity(ncols_max, n_experts);
     if (capacity <= 0 || capacity > (int64_t)(INT_MAX - 1)) {
         return 0;
@@ -2770,7 +2770,7 @@ size_t ds4_mmq_q2_K_moe_d2r_scratch_bytes(int64_t ncols_max, int n_experts) {
     return (size_t)capacity * sizeof(int) + sizeof(int);
 }
 
-size_t ds4_mmq_iq2_xxs_moe_d2r_pair_scratch_bytes(int64_t ncols_max, int n_experts) {
+extern "C" size_t ds4_mmq_iq2_xxs_moe_d2r_pair_scratch_bytes(int64_t ncols_max, int n_experts) {
     const int64_t capacity = d2r_work_capacity(ncols_max, n_experts);
     if (capacity <= 0 || capacity > (int64_t)(INT_MAX - 1)) {
         return 0;
@@ -2778,7 +2778,7 @@ size_t ds4_mmq_iq2_xxs_moe_d2r_pair_scratch_bytes(int64_t ncols_max, int n_exper
     return (size_t)capacity * sizeof(int) + sizeof(int);
 }
 
-size_t ds4_mmq_iq2_xxs_moe_d2r_fused_scratch_bytes(
+extern "C" size_t ds4_mmq_iq2_xxs_moe_d2r_fused_scratch_bytes(
         int64_t ncols_max, int n_experts) {
     const int64_t capacity =
         d2r_work_capacity_for_tile(ncols_max, n_experts, kFusedNTile);
@@ -2788,7 +2788,7 @@ size_t ds4_mmq_iq2_xxs_moe_d2r_fused_scratch_bytes(
     return (size_t)capacity * sizeof(int) + sizeof(int);
 }
 
-int ds4_mmq_q2_K_moe_d2r_launch(const void *W_soa,
+extern "C" int ds4_mmq_q2_K_moe_d2r_launch(const void *W_soa,
                                 int64_t soa_blocks,
                                 const void *q8,
                                 const int32_t *ids_dst,
@@ -2870,7 +2870,7 @@ int ds4_mmq_q2_K_moe_d2r_launch(const void *W_soa,
     return 0;
 }
 
-int ds4_mmq_iq2_xxs_moe_d2r_pair_launch(const void *gate_soa,
+extern "C" int ds4_mmq_iq2_xxs_moe_d2r_pair_launch(const void *gate_soa,
                                          const void *up_soa,
                                          int64_t soa_blocks,
                                          const void *q8,
@@ -2937,7 +2937,7 @@ int ds4_mmq_iq2_xxs_moe_d2r_pair_launch(const void *gate_soa,
     return 0;
 }
 
-int ds4_mmq_iq2_xxs_moe_d2r_fused_launch(
+extern "C" int ds4_mmq_iq2_xxs_moe_d2r_fused_launch(
         const void *gate_soa,
         const void *up_soa,
         int64_t soa_blocks,
@@ -3314,7 +3314,7 @@ void dense_q8_d2r_kernel(const char * __restrict__ wd_plane,
 } // namespace dq8
 } // anonymous namespace
 
-bool ds4_mmq_q8_0_dense_d2r_available(int cc) {
+extern "C" bool ds4_mmq_q8_0_dense_d2r_available(int cc) {
     static int cached_cc = -1;
     static int cached = 0;
     if (cached_cc != cc) {
@@ -3329,7 +3329,7 @@ bool ds4_mmq_q8_0_dense_d2r_available(int cc) {
 // (D4 layout, [k128][col] with stride N, over-allocated by >= 128 blocks for
 // the guarded last col tile - the mmq Y buffer's own mmq_x_max slack covers
 // this).  out is column-major [N][M] f32, every element written.
-int ds4_mmq_q8_0_dense_d2r_launch(
+extern "C" int ds4_mmq_q8_0_dense_d2r_launch(
         const void *W_aligned, const void *q8, float *out,
         int M, int N, int K, cudaStream_t stream) {
     using namespace dq8;
