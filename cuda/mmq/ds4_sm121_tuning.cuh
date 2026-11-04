@@ -34,6 +34,9 @@ static inline int ds4_cuda_sm121_pin_drafter_l2(const void *drafter_weights,
         window_size = (size_t)prop.persistingL2CacheMaxSize;
     }
 
+    // Set the hardware persisting L2 cache limit on Blackwell GB10
+    (void)cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, window_size);
+
     cudaStreamAttrValue val;
     val.accessPolicyWindow.base_ptr = (void *)drafter_weights;
     val.accessPolicyWindow.num_bytes = window_size;

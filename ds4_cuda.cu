@@ -1064,6 +1064,16 @@ static inline cudaStream_t cuda_decode_stream(void) {
     return g_decode_graph_capturing ? g_decode_graph_stream : (cudaStream_t)0;
 }
 
+#include "cuda/mmq/ds4_sm121_tuning.cuh"
+
+extern "C" void ds4_gpu_sm121_tune_dspark_l2(const void *map, uint64_t size) {
+    if (!ds4_gpu_device_is_spark() || !map || size == 0) return;
+    int rc = ds4_cuda_sm121_pin_drafter_l2(map, (size_t)size, cuda_decode_stream());
+    if (rc == 0) {
+        fprintf(stderr, "ds4: GB10 (sm_121) hardware persisting L2 cache window enabled for drafter\n");
+    }
+}
+
 static void cuda_dsv41_shared_free(void) {
     if (g_side_cublas) (void)cublasDestroy(g_side_cublas);
     g_side_cublas = NULL;

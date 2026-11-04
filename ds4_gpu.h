@@ -2889,6 +2889,7 @@ int ds4_gpu_dspark_gfx1151_fast_path(void);
 void ds4_gpu_set_dspark_verify_mode(bool enabled);
 #elif !defined(__APPLE__)
 int ds4_gpu_device_is_spark(void);
+void ds4_gpu_sm121_tune_dspark_l2(const void *map, uint64_t size);
 /* Spark: the spans as batched launches on the decode stream, ordered like
  * the asynchronous tensor copies.  Returns 1 when queued; 0 when declined
  * without copying anything (another device, more than
