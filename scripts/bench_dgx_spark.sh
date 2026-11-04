@@ -46,6 +46,10 @@ if command -v taskset >/dev/null 2>&1; then
     TASKSET_CMD="taskset -c 5-9,15-19"
 fi
 
+# Enable Blackwell GB10 fast-path optimizations
+export DS4_CUDA_FP4_INDEX=1
+export DS4_CONT_CAPTURE=1
+
 # Prepare a representative benchmark prompt file if needed
 PROMPT_FILE="/tmp/dgx_spark_bench_prompt.txt"
 if [ ! -f "$PROMPT_FILE" ] || [ $(wc -c < "$PROMPT_FILE") -lt 100000 ]; then
