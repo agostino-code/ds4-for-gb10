@@ -9,12 +9,15 @@
 #include "ds4_ssd.h"
 
 /* Model families & routing */
+#ifndef DS4_MODEL_FAMILY_DEFINED
+#define DS4_MODEL_FAMILY_DEFINED
 typedef enum {
     DS4_MODEL_FAMILY_DEEPSEEK4 = 0,
     DS4_MODEL_FAMILY_GLM_DSA   = 1,
     DS4_MODEL_FAMILY_DEEPSEEK41 = 2,
     DS4_MODEL_FAMILY_QWEN4_EXP = 3,
 } ds4_model_family;
+#endif
 
 #define MODEL_TYPE_DEEPSEEK4 DS4_MODEL_FAMILY_DEEPSEEK4
 #define MODEL_TYPE_GLM53     DS4_MODEL_FAMILY_GLM_DSA

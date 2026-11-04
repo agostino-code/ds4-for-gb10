@@ -522,12 +522,15 @@ enum {
     DS4_MAX_PLE_HEADS        = 64,
 };
 
+#ifndef DS4_MODEL_FAMILY_DEFINED
+#define DS4_MODEL_FAMILY_DEFINED
 typedef enum {
     DS4_MODEL_FAMILY_DEEPSEEK4 = 0,
     DS4_MODEL_FAMILY_GLM_DSA   = 1,
     DS4_MODEL_FAMILY_DEEPSEEK41 = 2,
     DS4_MODEL_FAMILY_QWEN4_EXP = 3,
 } ds4_model_family;
+#endif
 
 typedef enum {
     DS4_VARIANT_FLASH = 0,
