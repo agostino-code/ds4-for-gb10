@@ -21,19 +21,26 @@ if [ ! -x "./ds4-server" ]; then
     make cuda-spark
 fi
 
+# Detect Grace performance cores (Cortex-X925 on GB10 / DGX Spark)
+TASKSET_CMD=""
+if command -v taskset >/dev/null 2>&1; then
+    # Grace performance cores (Christopher Owen / spark-ds41f tuning)
+    TASKSET_CMD="taskset -c 5-9,15-19"
+fi
+
 # 1. Prefill throughput sweep (2k, 16k, 64k)
 echo
 echo "--- [1/2] Prefill Throughput Sweep ---"
 for ctx in 2048 16384 65536; do
     echo "Running prefill at context depth $ctx..."
-    ./ds4-bench --cuda -m "$GGUF_DIR/$MODEL" -p "$ctx" -n 1 || true
+    $TASKSET_CMD ./ds4-bench --cuda -m "$GGUF_DIR/$MODEL" -p "$ctx" -n 1 || true
 done
 
 # 2. Speculative Decode Verification
 echo
 echo "--- [2/2] DSpark Speculative Decode Sweep ---"
 echo "Benchmarking DSpark with guard=2.16 on code & prose prompts..."
-./ds4-bench --cuda -m "$GGUF_DIR/$MODEL" --dspark --mtp-model "$GGUF_DIR/$DRAfter" -p 2048 -n 128 || true
+$TASKSET_CMD ./ds4-bench --cuda -m "$GGUF_DIR/$MODEL" --dspark --mtp-model "$GGUF_DIR/$DRAfter" -p 2048 -n 128 || true
 
 echo
 echo "Benchmark sweep completed."

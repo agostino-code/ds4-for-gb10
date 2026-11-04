@@ -11,8 +11,13 @@ int main() {
 
     // Test calling the SM121 tuning function
     int rc = ds4_cuda_sm121_pin_drafter_l2(dummy_ptr, size, stream);
-    // On systems without live GPU runtime access (e.g. sandbox container),
-    // rc is non-zero or gracefully skips; interface signature and linkage are verified.
-    printf("test_sm121_l2_pinning: PASS (rc=%d)\n", rc);
+
+    // Verify DRAM channel anti-aliasing padding
+    assert(ds4_cuda_sm121_pad_vt_stride(2048) == 2048 + 128);
+    assert(ds4_cuda_sm121_pad_vt_stride(4096) == 4096 + 128);
+    assert(ds4_cuda_sm121_pad_vt_stride(8192) == 8192 + 128);
+    assert(ds4_cuda_sm121_pad_vt_stride(1200) % 128 == 0);
+
+    printf("test_sm121_l2_pinning: PASS (rc=%d, anti_aliasing_verified)\n", rc);
     return 0;
 }
