@@ -108,35 +108,36 @@ static inline size_t ds4_cuda_sm121_pad_vt_stride(size_t stride_bytes) {
 __device__ __forceinline__ int4 ds4_ldg_vec128(const void * __restrict__ ptr) {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
     int4 ret;
-    asm volatile("ld.global.nc.L2::128B.v4.s32 {%0, %1, %2, %3}, [%4];"
-                 : "=r"(ret.x), "=r"(ret.y), "=r"(ret.z), "=r"(ret.w)
-                 : "l"(ptr));
+    asm("ld.global.nc.L2::128B.v4.s32 {%0, %1, %2, %3}, [%4];"
+        : "=r"(ret.x), "=r"(ret.y), "=r"(ret.z), "=r"(ret.w)
+        : "l"(ptr));
     return ret;
 #else
     return *reinterpret_cast<const int4 *>(ptr);
 #endif
 }
 
-/* Direct non-coherent 128-bit global load (L2 bypass to registers for D2R weights) */
+/* Streaming 128-bit global load for single-use weights (uses L2 evict_first to protect KV/activations in L2).
+ * Note: Non-volatile asm allows compiler instruction hoisting and pipelining. */
 __device__ __forceinline__ int4 ds4_sm121_ld_global_128_nc(const void *ptr) {
     int4 ret;
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
-    asm volatile("ld.global.nc.v4.u32 {%0, %1, %2, %3}, [%4];"
-                 : "=r"(ret.x), "=r"(ret.y), "=r"(ret.z), "=r"(ret.w)
-                 : "l"(ptr));
+    asm("ld.global.nc.L2::evict_first.v4.u32 {%0, %1, %2, %3}, [%4];"
+        : "=r"(ret.x), "=r"(ret.y), "=r"(ret.z), "=r"(ret.w)
+        : "l"(ptr));
 #else
     ret = *reinterpret_cast<const int4 *>(ptr);
 #endif
     return ret;
 }
 
-/* Direct non-coherent 64-bit global load */
+/* Streaming 64-bit global load (non-volatile to enable compiler pipelining) */
 __device__ __forceinline__ uint2 ds4_sm121_ld_global_64_nc(const void *ptr) {
     uint2 ret;
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
-    asm volatile("ld.global.nc.v2.u32 {%0, %1}, [%2];"
-                 : "=r"(ret.x), "=r"(ret.y)
-                 : "l"(ptr));
+    asm("ld.global.nc.L2::evict_first.v2.u32 {%0, %1}, [%2];"
+        : "=r"(ret.x), "=r"(ret.y)
+        : "l"(ptr));
 #else
     ret = *reinterpret_cast<const uint2 *>(ptr);
 #endif
@@ -163,7 +164,8 @@ __device__ __forceinline__ void ds4_sm121_mma_m16n8k64_int4(
           "r"(b[0]), "r"(b[1]),
           "r"(c[0]), "r"(c[1]), "r"(c[2]), "r"(c[3]));
 #else
-    d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
+    __trap(); // Fail-fast: prevents silent wrong results when executed below SM120
+    (void)d; (void)a; (void)b; (void)c;
 #endif
 }
 
@@ -188,8 +190,8 @@ __device__ __forceinline__ void ds4_sm121_mma_m16n8k64_mxf4(
           "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]),
           "r"(a_scale), "r"(b_scale));
 #else
-    d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
-    (void)a; (void)b; (void)a_scale; (void)b_scale;
+    __trap(); // Fail-fast: prevents silent wrong results when executed below SM120
+    (void)d; (void)a; (void)b; (void)c; (void)a_scale; (void)b_scale;
 #endif
 }
 
@@ -214,8 +216,8 @@ __device__ __forceinline__ void ds4_sm121_mma_m16n8k64_nvfp4(
           "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]),
           "r"(a_scale), "r"(b_scale));
 #else
-    d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
-    (void)a; (void)b; (void)a_scale; (void)b_scale;
+    __trap(); // Fail-fast: prevents silent wrong results when executed below SM120
+    (void)d; (void)a; (void)b; (void)c; (void)a_scale; (void)b_scale;
 #endif
 }
 
@@ -240,8 +242,8 @@ __device__ __forceinline__ void ds4_sm121_mma_m16n8k32_mxf8f6f4(
           "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]),
           "r"(a_scale), "r"(b_scale));
 #else
-    d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
-    (void)a; (void)b; (void)a_scale; (void)b_scale;
+    __trap(); // Fail-fast: prevents silent wrong results when executed below SM120
+    (void)d; (void)a; (void)b; (void)c; (void)a_scale; (void)b_scale;
 #endif
 }
 #endif

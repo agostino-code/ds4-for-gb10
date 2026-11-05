@@ -7569,6 +7569,13 @@ __global__ static void head_rms_norm_kernel(float *x, uint32_t n_tok, uint32_t n
 
 __device__ static float rope_yarn_ramp_dev(float low, float high, int i0);
 
+__device__ __forceinline__ static float ds4_rope_reduce_angle(float theta) {
+    // Range reduction to [-pi, pi] to preserve trigonometric precision under --use_fast_math at long context (256K-1M)
+    const float inv_two_pi = 0.15915494309189535f; // 1.0f / (2.0f * M_PI)
+    const float two_pi = 6.283185307179586f;
+    return theta - two_pi * roundf(theta * inv_two_pi);
+}
+
 __global__ static void dsv4_qkv_rms_norm_rows_kv_rope_kernel(
         float *q_out,
         const float *q,
@@ -7653,6 +7660,7 @@ __global__ static void dsv4_qkv_rms_norm_rows_kv_rope_kernel(
             theta = theta_interp * (1.0f - ramp_mix) + theta_extrap * ramp_mix;
             mscale *= 1.0f + 0.1f * logf(1.0f / freq_scale);
         }
+        theta = ds4_rope_reduce_angle(theta);
         float c = cosf(theta) * mscale;
         float s = sinf(theta) * mscale;
         if (inverse) s = -s;
@@ -7720,6 +7728,7 @@ __global__ static void head_rms_norm_rope_tail_kernel(
             theta = theta_interp * (1.0f - ramp_mix) + theta_extrap * ramp_mix;
             mscale *= 1.0f + 0.1f * logf(1.0f / freq_scale);
         }
+        theta = ds4_rope_reduce_angle(theta);
         float c = cosf(theta) * mscale;
         float s = sinf(theta) * mscale;
         if (inverse) s = -s;
@@ -7840,6 +7849,7 @@ __global__ static void rope_tail_decode_rows_kernel(
         theta = theta_interp * (1.0f - ramp_mix) + theta_extrap * ramp_mix;
         mscale *= 1.0f + 0.1f * logf(1.0f / freq_scale);
     }
+    theta = ds4_rope_reduce_angle(theta);
     const float c = cosf(theta) * mscale;
     float s = sinf(theta) * mscale;
     if (inverse) s = -s;
@@ -7933,6 +7943,7 @@ __device__ static DS4_CUDA_UNUSED void rope_tail_one_dev(float *x, uint32_t head
             theta = theta_interp * (1.0f - mix) + theta_extrap * mix;
             mscale *= 1.0f + 0.1f * logf(1.0f / freq_scale);
         }
+        theta = ds4_rope_reduce_angle(theta);
         float c = cosf(theta) * mscale;
         float s = sinf(theta) * mscale;
         float x0 = x[n_nope + i];
