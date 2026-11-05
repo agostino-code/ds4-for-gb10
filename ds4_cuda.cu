@@ -1322,6 +1322,78 @@ static int cuda_use_mxfp4_mmq(void) {
     return use;
 }
 
+typedef struct {
+    half2 ds;
+    int8_t qs[32];
+} cuda_block_q8_1;
+static_assert(sizeof(cuda_block_q8_1) == 36, "cuda_block_q8_1 must be 36 bytes");
+
+/* Fused SwiGLU + Q8_1 quantization epilogue kernel (Section 4.B of review).
+ * Fuses gate/up activation, clamping, routing weight scaling, and Q8_1 quantization
+ * into registers using warp-level __shfl_xor_sync reductions, bypassing intermediate
+ * global memory writes. */
+__global__ static DS4_CUDA_UNUSED void ds4_fused_swiglu_quant_q8_1_kernel(
+        cuda_block_q8_1 * __restrict__ out_q8,
+        const float * __restrict__ gate_buf,
+        const float * __restrict__ up_buf,
+        const float * __restrict__ weights,
+        uint32_t expert_mid_dim,
+        uint32_t n_tokens,
+        uint32_t n_expert_used,
+        float clamp,
+        uint32_t total_blocks_q8) {
+    const uint32_t blk_idx = blockIdx.x * blockDim.y + threadIdx.y;
+    if (blk_idx >= total_blocks_q8) return;
+
+    const uint32_t lane = threadIdx.x; // 0..31
+    const uint64_t gid = (uint64_t)blk_idx * 32u + lane;
+    const uint64_t n = (uint64_t)n_tokens * n_expert_used * expert_mid_dim;
+
+    float val = 0.0f;
+    if (gid < n) {
+        uint64_t slot_pair = gid / expert_mid_dim;
+        uint32_t tok = (uint32_t)(slot_pair / n_expert_used);
+        uint32_t slot = (uint32_t)(slot_pair - (uint64_t)tok * n_expert_used);
+        const float w = weights[(uint64_t)tok * n_expert_used + slot];
+        if (w != 0.0f) {
+            float g = gate_buf[gid];
+            float u = up_buf[gid];
+            if (!isfinite(g)) g = 0.0f;
+            if (!isfinite(u)) u = 0.0f;
+            if (clamp > 1.0e-6f) {
+                if (g > clamp) g = clamp;
+                if (u > clamp) u = clamp;
+                if (u < -clamp) u = -clamp;
+            }
+            const float s = g / (1.0f + expf(-g));
+            val = s * u * w;
+        }
+    }
+
+    // Warp-level reduction for maximum absolute value (amax)
+    float amax = fabsf(val);
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        amax = fmaxf(amax, __shfl_xor_sync(0xffffffffu, amax, offset));
+    }
+
+    // Quantize into Q8_1 format
+    const float d = amax / 127.0f;
+    const float id = (amax != 0.0f) ? (127.0f / amax) : 0.0f;
+    int8_t q = (int8_t)roundf(val * id);
+
+    float sum_q = (float)q;
+    #pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        sum_q += __shfl_xor_sync(0xffffffffu, sum_q, offset);
+    }
+
+    out_q8[blk_idx].qs[lane] = q;
+    if (lane == 0) {
+        out_q8[blk_idx].ds = make_half2(__float2half(d), __float2half(d * sum_q));
+    }
+}
+
 /* mmq pipeline helpers, ported from the fork: SwiGLU + clamp + router
  * weight in the (token, slot, feature) layout ds4_mmq_*_moe writes, and
  * the guarded per-token slot sum. */

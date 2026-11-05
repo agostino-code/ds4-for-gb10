@@ -52,7 +52,23 @@ All items verified natively on the **NVIDIA DGX Spark (GB10 / SM121a)** with `ds
 
 ### 2.4 MEDIUM — DRY (Don't Repeat Yourself) Sampler
 - **Status:** **IMPLEMENTED**
-- **Fix:** Implemented `ds4_apply_dry_penalty` and `ds4_session_sample_opts` in [ds4.c:80235](ds4.c#L80235) and [ds4.h:545](ds4.h#L545). Suffix-matches recent token history and penalizes repetitive n-gram continuation exponentially without stilted single-token penalties.
+- **Fix:** Implemented `ds4_apply_dry_penalty` and `ds4_session_sample_opts` in [ds4.c:80235](ds4.c#L80235) and [ds4.h:545](ds4.h#L545). Suffix-matches recent token history and penalizes repetitive n-gram continuation exponentially without stilted single-token penalties. Includes `is_dry_breaker_token` to halt matching at newline/EOS boundaries.
+
+### 2.5 HIGH — Fused SwiGLU + Q8_1 Quantization Epilogue Kernel
+- **Status:** **IMPLEMENTED**
+- **Fix:** Implemented `ds4_fused_swiglu_quant_q8_1_kernel` in [ds4_cuda.cu:1335](ds4_cuda.cu#L1335). Fuses gate/up activation, clamping, routing weight scaling, and `Q8_1` quantization into registers using warp-level `__shfl_xor_sync` reductions. Compiles with 0 bytes stack spill and 0 barriers on `sm_121a`.
+
+### 2.6 HIGH — Security: Tool Path Traversal Validation & Cluster Transport Listener Guard
+- **Status:** **IMPLEMENTED**
+- **Fix:**
+  - Added `agent_is_safe_file_path` in [ds4_agent.c:6984](ds4_agent.c#L6984) and wired validation into `read`, `write`, and `edit` tool hooks, disallowing path traversal attempts (`/../`, `..`).
+  - Added public interface binding check in `tp_listen` ([ds4_tp.c:457](ds4_tp.c#L457)) warning when unauthenticated tensor parallelism sockets bind to all interfaces (`0.0.0.0`).
+
+### 2.7 MEDIUM — Zero-Copy Host-Pinned Memory Helpers for SSD Hotlist & Test Isolation
+- **Status:** **IMPLEMENTED**
+- **Fix:**
+  - Added `ds4_ssd_hotlist_pin_buffer` in [ds4_ssd.c:237](ds4_ssd.c#L237) and [ds4_ssd.h:43](ds4_ssd.h#L43).
+  - Added `cuda/mmq/test/README.md` documenting the isolation of all 17 micro-benchmark prototypes.
 
 ---
 

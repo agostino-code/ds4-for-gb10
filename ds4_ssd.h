@@ -40,5 +40,7 @@ void ds4_ssd_memory_lock_release(ds4_ssd_memory_lock *lock);
 int ds4_ssd_drop_page_cache(int fd, uint64_t offset, uint64_t bytes);
 bool ds4_ssd_is_direct_io_aligned(uint64_t offset, size_t bytes, const void *buf);
 uint64_t ds4_ssd_clamp_to_spark_unified_budget(uint64_t requested_bytes);
+bool ds4_ssd_hotlist_pin_buffer(void *ptr, size_t bytes);
+void ds4_ssd_hotlist_unpin_buffer(void *ptr);
 
 #endif

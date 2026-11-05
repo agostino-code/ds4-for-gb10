@@ -233,3 +233,15 @@ uint64_t ds4_ssd_clamp_to_spark_unified_budget(uint64_t requested_bytes) {
     }
     return safe_budget;
 }
+
+bool ds4_ssd_hotlist_pin_buffer(void *ptr, size_t bytes) {
+    if (!ptr || bytes == 0) return false;
+#if defined(__linux__) && defined(MADV_DONTDUMP)
+    (void)madvise(ptr, bytes, MADV_DONTDUMP);
+#endif
+    return true;
+}
+
+void ds4_ssd_hotlist_unpin_buffer(void *ptr) {
+    (void)ptr;
+}

@@ -6981,8 +6981,28 @@ static char *agent_read_range(agent_worker *w, const char *path, int start_line,
                                  bare, set_more, 0, false);
 }
 
+static bool agent_is_safe_file_path(const char *path, char *err, size_t errlen) {
+    if (!path || !path[0]) {
+        snprintf(err, errlen, "path cannot be empty");
+        return false;
+    }
+    /* Prevent directory traversal attacks escaping workspace root */
+    if (strstr(path, "/../") || !strcmp(path, "..") || !strncmp(path, "../", 3)) {
+        snprintf(err, errlen, "path traversal sequence not allowed: %s", path);
+        return false;
+    }
+    return true;
+}
+
 static char *agent_tool_read(agent_worker *w, const agent_tool_call *call) {
     const char *path = agent_tool_arg_value(call, "path");
+    if (!path || !path[0]) return xstrdup("Tool error: read requires path\n");
+    char path_err[128];
+    if (!agent_is_safe_file_path(path, path_err, sizeof(path_err))) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Tool error: %s\n", path_err);
+        return xstrdup(msg);
+    }
     bool whole = agent_parse_bool_default(agent_tool_arg_value(call, "whole"), false);
     int start = agent_parse_int_default(agent_tool_arg_value(call, "start_line"),
                                         1, 1, INT_MAX);
@@ -7006,6 +7026,12 @@ static char *agent_tool_write(agent_worker *w, const agent_tool_call *call) {
     const char *content = agent_tool_arg_value(call, "content");
     if (!path || !path[0]) return xstrdup("Tool error: write requires path\n");
     if (!content) return xstrdup("Tool error: write requires content\n");
+    char path_err[128];
+    if (!agent_is_safe_file_path(path, path_err, sizeof(path_err))) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Tool error: %s\n", path_err);
+        return xstrdup(msg);
+    }
     size_t len = strlen(content);
     char err[256];
     if (agent_replace_file(path, content, len, NULL, 0, err, sizeof(err)) != 0) {
@@ -8264,6 +8290,12 @@ static char *agent_apply_file_splice(const char *path,
 static char *agent_tool_edit(agent_worker *w, const agent_tool_call *call) {
     const char *path = agent_tool_arg_value(call, "path");
     if (!path || !path[0]) return xstrdup("Tool error: edit requires path\n");
+    char path_err[128];
+    if (!agent_is_safe_file_path(path, path_err, sizeof(path_err))) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Tool error: %s\n", path_err);
+        return xstrdup(msg);
+    }
     const char *old = agent_tool_arg_value(call, "old");
     const char *new_text = agent_tool_arg_value(call, "new");
     if (!old || !old[0]) return xstrdup("Tool error: edit requires non-empty old text\n");

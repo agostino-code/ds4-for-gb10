@@ -455,6 +455,14 @@ static int tp_peer_closed(const ds4_tp *tp) {
 #endif
 
 static int tp_listen(const char *host, int port, char *err, size_t errlen) {
+    if (!host || !host[0] || !strcmp(host, "0.0.0.0") || !strcmp(host, "::")) {
+        if (getenv("DS4_TP_ALLOW_INSECURE_ALL_INTERFACES") == NULL) {
+            fprintf(stderr,
+                    "ds4: warning: tensor parallelism listener binding to all interfaces (%s:%d) without mutual authentication. "
+                    "For cluster security on DGX Spark, specify a dedicated point-to-point IP or set DS4_TP_ALLOW_INSECURE_ALL_INTERFACES=1.\n",
+                    host && host[0] ? host : "0.0.0.0", port);
+        }
+    }
     char portbuf[16];
     snprintf(portbuf, sizeof(portbuf), "%d", port);
     struct addrinfo hints = {0}, *res = NULL;
