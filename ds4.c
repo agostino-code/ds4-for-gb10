@@ -2552,10 +2552,11 @@ static const char *tensor_type_name(uint32_t type) {
 
 static bool tensor_nbytes(uint32_t type, uint64_t elements, uint64_t *bytes) {
     const gguf_type_info *info = tensor_type(type);
-    if (!info || info->block_elems == 0) return false;
-    uint64_t blocks = (elements + info->block_elems - 1) / info->block_elems;
-    if (blocks > UINT64_MAX / info->block_bytes) return false;
-    *bytes = blocks * info->block_bytes;
+    if (!info || info->block_elems == 0 || !bytes) return false;
+    uint64_t sum = 0;
+    if (__builtin_add_overflow(elements, (uint64_t)info->block_elems - 1u, &sum)) return false;
+    uint64_t blocks = sum / info->block_elems;
+    if (__builtin_mul_overflow(blocks, (uint64_t)info->block_bytes, bytes)) return false;
     return true;
 }
 

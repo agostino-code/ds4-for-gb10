@@ -129,6 +129,21 @@ static inline void ds4_ram_quench_range(void *addr, size_t len) {
     }
 }
 
+/* Rilascio robusto e allineato della Page Cache Linux su DGX Spark dopo repack o unmapping */
+static inline void ds4_release_mmap_pages(void *addr, size_t len) {
+#if defined(__linux__) && defined(MADV_DONTNEED)
+    if (!addr || len == 0) return;
+    const size_t page_size = 4096;
+    uintptr_t aligned_start = ((uintptr_t)addr + page_size - 1) & ~(page_size - 1);
+    uintptr_t aligned_end   = ((uintptr_t)addr + len) & ~(page_size - 1);
+    if (aligned_end > aligned_start) {
+        madvise((void *)aligned_start, (size_t)(aligned_end - aligned_start), MADV_DONTNEED);
+    }
+#else
+    (void)addr; (void)len;
+#endif
+}
+
 /* 4096-byte page-aligned allocation for Zero-Copy DMA and direct I/O (O_DIRECT) */
 static inline void *ds4_linux_aligned_alloc(size_t size) {
     if (size == 0) return NULL;
