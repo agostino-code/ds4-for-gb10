@@ -2,6 +2,11 @@
 
 [README](../README.md)
 
+> **CUDA-only build.** This repository is stripped of the Metal (Apple) and
+> ROCm (AMD) backends. Instructions below that reference `--metal`, macOS,
+> M-series Macs, or Strix Halo apply only to the upstream fork; use the CUDA /
+> GB10 paths documented in [DGX_SPARK.md](DGX_SPARK.md) instead.
+
 Use resident inference when the model and runtime fit: it is faster.
 SSD streaming keeps a bounded cache of routed experts and reads missing
 experts from the GGUF. It trades speed for capacity; it does not remove the

@@ -2,6 +2,11 @@
 
 [README](../README.md) | [Getting started](../README.md#start-here)
 
+> **CUDA-only build.** This repository is stripped of the Metal (Apple) and
+> ROCm (AMD) backends. Instructions below that reference `--metal`, macOS,
+> M-series Macs, or Strix Halo apply only to the upstream fork; use the CUDA /
+> GB10 paths documented in [DGX_SPARK.md](DGX_SPARK.md) instead.
+
 DwarfStar is not a general GGUF runner. Use the download targets below: other
 GGUFs may have unsupported tensor layouts, metadata, or quantization mixes.
 Run `./download_model.sh --help` for filenames and all available targets.
@@ -45,11 +50,10 @@ To build weights rather than download them, see [GGUF tools](../gguf-tools/READM
 
 ## DeepSeek V4.1 Flash
 
-V4.1 Flash text and vision inference work on Metal. CUDA supports text with
-Q2 SSD streaming on one Spark or resident shards across two Sparks. ROCm
-supports single-host text inference with SSD streaming. It needs its own
-GGUF, tokenizer and inference graph; V4 Flash weights and DSpark support files
-are not interchangeable with it.
+In this CUDA-only build, V4.1 Flash **text** inference runs on CUDA with Q2
+SSD streaming on one Spark or resident shards across two Sparks (vision is not
+supported on CUDA). It needs its own GGUF, tokenizer and inference graph; V4
+Flash weights and DSpark support files are not interchangeable with it.
 
 | Target | File size | Main weights |
 | --- | ---: | ---: |
@@ -63,28 +67,27 @@ All include 189 GiB of Engram tables. Engram rows are read directly from the
 file as needed in every mode, never loaded as a resident table. Keep the GGUF
 on a fast local SSD.
 
-On one 128 GB Mac, use SSD streaming. Leave the expert cache budget automatic:
+On one DGX Spark, use SSD streaming with CUDA. Leave the expert cache budget
+automatic:
 
 ```sh
 ./download_model.sh ds41f-q2
-./ds4 -m gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf \
+./ds4 --cuda -m gguf/DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf \
   --ssd-streaming --ctx 32768
 ```
 
 Use `ds4-agent` or `ds4-server` with the same model and memory options.
-On a DGX Spark, add `--cuda`; see the [Spark guide](DGX_SPARK.md#deepseek-v41-flash).
+See the [Spark guide](DGX_SPARK.md#deepseek-v41-flash).
 `--think-level 25` sets reasoning effort explicitly; the range is 1 to 100,
 with 0 disabling thinking. `/think 25` changes it in the CLI or native agent.
 `--think` selects 75 and `--think-max` selects 100.
 
-For two 128 GB Macs or Sparks, follow the [TP/RDMA setup](DISTRIBUTED.md), passing this
+For two Sparks, follow the [TP/RDMA setup](DISTRIBUTED.md), passing this
 GGUF with `-m` on both ranks and omitting `--ssd-streaming`. Each rank holds
 about 81 GiB of main weights, plus context and runtime buffers. Both machines
-need the complete GGUF on disk. A 256 GB or larger Mac can instead hold all
-main weights; full residency has been tested on an M3 Ultra with 512 GB.
+need the complete GGUF on disk.
 
-Q4 needs SSD streaming on smaller Macs, or a 512 GB Mac for full residency.
-It does not fit resident TP across two 128 GB Macs. Download it with
+Q4 needs SSD streaming on a single Spark. Download it with
 `./download_model.sh ds41f-q4` and select `gguf/DeepSeek-V4.1-Flash-Q4.gguf`.
 The download comes in two parts; the script joins and verifies them automatically.
 Allow another 37 GiB of free disk space while joining. Rerun the command to resume an

@@ -36,25 +36,14 @@ pins 2048; do not generalize that setting to every benchmark.
 
 These existing sweeps use 2048-token intervals and 128 generation tokens per
 frontier. They are recorded baselines, not measurements of every subsequent
-commit. Full data: [M5 Max](../speed-bench/m5_max.csv) and
-[DGX Spark](../speed-bench/gb10.csv).
+commit. Full data: [DGX Spark](../speed-bench/gb10.csv).
 
 | Machine | Context | Prefill | Generation |
 | --- | ---: | ---: | ---: |
-| M5 Max, 128 GB | 2048 | 790.18 t/s | 39.35 t/s |
-| M5 Max, 128 GB | 16384 | 572.53 t/s | 36.14 t/s |
-| M5 Max, 128 GB | 32768 | 557.04 t/s | 34.36 t/s |
-| M5 Max, 128 GB | 65536 | 398.50 t/s | 27.64 t/s |
 | DGX Spark, 128 GB | 2048 | 825.76 t/s | 18.05 t/s |
 | DGX Spark, 128 GB | 16384 | 872.44 t/s | 15.10 t/s |
 | DGX Spark, 128 GB | 32768 | 855.94 t/s | 14.43 t/s |
 | DGX Spark, 128 GB | 65536 | 822.98 t/s | 13.84 t/s |
-
-![M5 Max Flash Q2 throughput](../speed-bench/m5_max_ts.svg)
-
-Historical PRO Q2 measurements on the M3 Ultra are retained in this chart:
-
-![PRO Q2 on M3 Ultra](../speed-bench/pro_model_m3_ultra_ts.svg)
 
 ## What to compare next
 

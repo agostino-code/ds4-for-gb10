@@ -2,6 +2,11 @@
 
 [Back to README](../README.md)
 
+> **CUDA-only build.** This repository is stripped of the Metal (Apple) and
+> ROCm (AMD) backends. Instructions below that reference `--metal`, macOS,
+> M-series Macs, or Strix Halo apply only to the upstream fork; use the CUDA /
+> GB10 paths documented in [DGX_SPARK.md](DGX_SPARK.md) instead.
+
 Qwen3.8-Flash-Next uses the `qwen4exp` GGUF architecture and a dedicated
 Metal/CUDA graph with gated delta-net, gated GQA, block-sparse attention,
 hyper-connections, n-gram embeddings, MoE, and MTP.
@@ -488,8 +493,8 @@ Repeat with `--quality` and, for the long set, `--continued-prefill 1` and
 no rendered-prompt flag is needed. See [quality testing](../gguf-tools/quality-testing/README.md)
 for collection settings, measurements and the hosted-checkpoint limitations.
 
-[Checkpoint-fix benchmark charts and measurements](../speed-bench/qwen38-checkpoints/README.md)
-compare prefill, ordinary decode, and MTP decode against the preceding PR head.
+Benchmark charts and measurements for Qwen checkpoints are retained in
+[speed-bench](PERFORMANCE.md) and [QA_BEFORE_RELEASES.md](../QA_BEFORE_RELEASES.md).
 
 Qwen prefill checkpoints include matching logits at each completed chunk,
 including cancellation frontiers. To test save/restore and continuation:

@@ -2,6 +2,11 @@
 
 [README](../README.md)
 
+> **CUDA-only build.** This repository is stripped of the Metal (Apple) and
+> ROCm (AMD) backends. Instructions below that reference `--metal`, macOS,
+> M-series Macs, or Strix Halo apply only to the upstream fork; use the CUDA /
+> GB10 paths documented in [DGX_SPARK.md](DGX_SPARK.md) instead.
+
 Speculation proposes future tokens with a smaller draft block, then checks
 them with the main model. An accepted prefix advances generation by several
 tokens in one verification pass. It does not accelerate prefill.

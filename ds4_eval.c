@@ -1189,6 +1189,8 @@ typedef struct {
     float temperature;
     float top_p;
     float min_p;
+    float repeat_penalty;
+    int repeat_window;
     uint64_t seed;
     int pause_ms;
     int power_percent;
@@ -1606,6 +1608,8 @@ static eval_config parse_options(int argc, char **argv) {
         .suite_mask = EVAL_SUITE_CORE,
         .top_p = DS4_DEFAULT_TOP_P,
         .min_p = DS4_DEFAULT_MIN_P,
+        .repeat_penalty = 1.0f,
+        .repeat_window = DS4_DEFAULT_REPEAT_WINDOW,
         .pause_ms = 350,
         .soft_limit_reply_budget = 1024,
         .hard_limit_reply_budget = 512,
@@ -1684,6 +1688,10 @@ static eval_config parse_options(int argc, char **argv) {
             c.retry_incomplete = true;
         } else if (!strcmp(arg, "--temp")) {
             c.temperature = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 100.0f);
+        } else if (!strcmp(arg, "--repeat-penalty") || !strcmp(arg, "--repetition-penalty")) {
+            c.repeat_penalty = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 10.0f);
+        } else if (!strcmp(arg, "--repeat-window") || !strcmp(arg, "--repeat-last-n")) {
+            c.repeat_window = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--top-p")) {
             c.top_p = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
         } else if (!strcmp(arg, "--min-p")) {
@@ -4337,8 +4345,10 @@ static eval_run_result run_one_case(ds4_engine *engine, ds4_session *session,
             }
         }
         if (token < 0)
-            token = ds4_session_sample(session, cfg->temperature, 0,
-                                       cfg->top_p, cfg->min_p, rng);
+            token = ds4_session_sample_ex(session, cfg->temperature, 0,
+                                          cfg->top_p, cfg->min_p,
+                                          cfg->repeat_penalty, 0.0f, 0.0f,
+                                          cfg->repeat_window, rng);
         if (ds4_token_is_stop(engine, token)) break;
         if (close_kind != EVAL_THINK_CLOSE_NONE &&
             think_close.kind == EVAL_THINK_CLOSE_NONE) {

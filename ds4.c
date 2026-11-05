@@ -44558,6 +44558,9 @@ struct ds4_engine {
     bool dspark;
     bool dspark_strict;
     bool dspark_exact_sampling;
+    bool spec_ngram;
+    uint32_t spec_ngram_n;
+    uint32_t spec_ngram_draft;
     bool cuda_tensor_parallel;
     bool glm_tp_token_prefill;
     bool ssd_streaming;
@@ -62987,6 +62990,78 @@ typedef struct ds4_dspark_spec_stats {
 #endif
 
 typedef struct {
+    uint32_t n;
+    uint32_t size;
+    uint32_t mask;
+    int32_t *entries;
+} ds4_ngram_mod;
+
+static inline uint64_t ds4_ngram_hash(const int32_t *tokens, uint32_t n) {
+    uint64_t h = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        h = h * 6364136223846793005ULL + (uint64_t)(tokens[i] + 1);
+    }
+    return h;
+}
+
+static inline void ds4_ngram_add(ds4_ngram_mod *m, const int32_t *tokens, int32_t next_token) {
+    if (!m || !m->entries) return;
+    uint32_t idx = (uint32_t)(ds4_ngram_hash(tokens, m->n) & m->mask);
+    m->entries[idx] = next_token;
+}
+
+static inline int32_t ds4_ngram_get(const ds4_ngram_mod *m, const int32_t *tokens) {
+    if (!m || !m->entries) return -1;
+    uint32_t idx = (uint32_t)(ds4_ngram_hash(tokens, m->n) & m->mask);
+    return m->entries[idx];
+}
+
+static int ds4_ngram_draft(const ds4_ngram_mod *m,
+                           const int32_t *history, int history_len,
+                           int first_token,
+                           int *drafts_out, int max_drafts) {
+    if (!m || !m->entries || history_len + 1 < (int)m->n || max_drafts <= 0) return 0;
+    int buf[32];
+    int n = (int)m->n;
+    if (n > 16 || max_drafts > 15) return 0;
+
+    int hist_start = history_len - (n - 1);
+    for (int i = 0; i < n - 1; i++) {
+        buf[i] = history[hist_start + i];
+    }
+    buf[n - 1] = first_token;
+
+    int drafted = 0;
+    while (drafted < max_drafts) {
+        int next = ds4_ngram_get(m, buf + drafted);
+        if (next < 0 || (uint32_t)next >= DS4_N_VOCAB) break;
+        drafts_out[drafted] = next;
+        buf[n + drafted] = next;
+        drafted++;
+    }
+    return drafted;
+}
+
+static void ds4_ngram_mod_init(ds4_ngram_mod *m, uint32_t n, uint32_t size_bits) {
+    if (!m) return;
+    m->n = n > 0 ? n : 3;
+    if (size_bits < 12) size_bits = 12;
+    if (size_bits > 22) size_bits = 22;
+    m->size = 1u << size_bits;
+    m->mask = m->size - 1u;
+    m->entries = xmalloc((size_t)m->size * sizeof(m->entries[0]));
+    memset(m->entries, 0xff, (size_t)m->size * sizeof(m->entries[0]));
+}
+
+static void ds4_ngram_mod_free(ds4_ngram_mod *m) {
+    if (!m) return;
+    free(m->entries);
+    m->entries = NULL;
+    m->size = 0;
+    m->mask = 0;
+}
+
+typedef struct {
     uint32_t token_start;
     uint32_t token_count;
     uint8_t fingerprint[32];
@@ -63062,7 +63137,12 @@ struct ds4_session {
     float *dspark_markov_bias;
     float *dspark_conf_features;
     size_t dspark_conf_features_cap;
+    float *dspark_hidden_rows;
+    uint32_t dspark_last_attempted_drafts;
 #endif
+    ds4_ngram_mod ngram;
+    bool ngram_enabled;
+    uint32_t ngram_draft_k;
     int mtp_draft_token;
 #ifndef DS4_NO_GPU
     int dspark_draft_tokens[DS4_DSPARK_MAX_BLOCK_SIZE];
@@ -63274,11 +63354,12 @@ static uint32_t ds4_dspark_scheduler_cold_low_confidence_skip_cycles(void) {
 }
 
 static uint32_t ds4_dspark_scheduler_tail_min_tokens(const ds4_session *s) {
-    /* Short Spark TP seed batches still pay off with four tokens left.
-     * Two-token prose requests do not; keep those on ordinary decode. */
+    /* Short Spark TP seed batches and local DGX Spark runs still pay off with
+     * 2-4 tokens left. Two-token prose requests do not; keep those on ordinary decode. */
     const uint32_t fallback = s && s->engine &&
-        ds4_dspark_spark_tp_policy(s->engine, s->engine->tp.active) &&
-        ds4_session_dspark_seed_batch_enabled(s) ? 4u : 10u;
+        (ds4_dspark_spark_tp_policy(s->engine, s->engine->tp.active) ||
+         (s->engine->backend == DS4_BACKEND_CUDA && ds4_gpu_device_is_spark())) &&
+        ds4_session_dspark_seed_batch_enabled(s) ? 2u : 10u;
     return ds4_dspark_env_u32("DS4_DSPARK_SCHEDULER_TAIL_MIN_TOKENS", fallback);
 }
 
@@ -73754,6 +73835,9 @@ static int ds4_engine_open_internal(ds4_engine **out,
     e->dspark = opt->dspark;
     e->dspark_strict = opt->dspark_strict;
     e->dspark_exact_sampling = opt->dspark_exact_sampling;
+    e->spec_ngram = opt->spec_ngram;
+    e->spec_ngram_n = opt->spec_ngram_n;
+    e->spec_ngram_draft = opt->spec_ngram_draft;
     e->cuda_tensor_parallel = opt->cuda_tensor_parallel;
     e->glm_tp_token_prefill = opt->tp.glm_token_prefill;
     e->ssd_streaming = opt->ssd_streaming;
@@ -76748,6 +76832,9 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
                 xmalloc((size_t)dspark_feature_count *
                         sizeof(s->dspark_conf_features[0]));
             s->dspark_conf_features_cap = (size_t)dspark_feature_count;
+            s->dspark_hidden_rows =
+                xmalloc((size_t)DS4_DSPARK_MAX_BLOCK_SIZE * (size_t)DS4_N_EMBD *
+                        sizeof(s->dspark_hidden_rows[0]));
         }
     }
     if (e->mtp_ready) {
@@ -76780,6 +76867,13 @@ int ds4_session_create(ds4_session **out, ds4_engine *e, int ctx_size) {
     if (!ds4_session_tp_register(s)) {
         ds4_session_free(s);
         return 1;
+    }
+    const bool ngram_env = getenv("DS4_SPEC_NGRAM") != NULL;
+    if (e->spec_ngram || ngram_env) {
+        uint32_t n = e->spec_ngram_n ? e->spec_ngram_n : 3;
+        ds4_ngram_mod_init(&s->ngram, n, 19); /* 524,288 entries = 2 MB */
+        s->ngram_enabled = true;
+        s->ngram_draft_k = e->spec_ngram_draft ? e->spec_ngram_draft : 3;
     }
     *out = s;
     return 0;
@@ -76858,7 +76952,9 @@ void ds4_session_free(ds4_session *s) {
     free(s->dspark_rewind_logits);
     free(s->dspark_markov_bias);
     free(s->dspark_conf_features);
+    free(s->dspark_hidden_rows);
 #endif
+    if (s->ngram_enabled) ds4_ngram_mod_free(&s->ngram);
     free(s);
 }
 
@@ -78663,6 +78759,11 @@ int ds4_session_sync(ds4_session *s, const ds4_tokens *prompt, char *err, size_t
     int rc = s && s->engine && s->engine->tp.active && prompt && prompt->len > 0 ?
         ds4_session_sync_lockstep(s, prompt, err, errlen) :
         ds4_session_sync_internal(s, prompt, err, errlen);
+    if (rc == 0 && s && s->ngram_enabled && s->ngram.entries && prompt && prompt->len > (int)s->ngram.n) {
+        for (int i = 0; i <= prompt->len - (int)s->ngram.n - 1; i++) {
+            ds4_ngram_add(&s->ngram, prompt->v + i, prompt->v[i + s->ngram.n]);
+        }
+    }
 #ifndef DS4_NO_GPU
     if (rc == 0) glm_debug_dump_prefill_logits(s->logits);
     if (rc == 0) {
@@ -80106,9 +80207,24 @@ int ds4_session_argmax_excluding(ds4_session *s, int excluded_id) {
     return best;
 }
 
-int ds4_session_argmax_ignoring_eos(ds4_session *s,
-                                    ds4_think_mode think_mode) {
+int ds4_session_argmax_ignoring_eos_ex(
+        ds4_session *s,
+        ds4_think_mode think_mode,
+        float repeat_penalty,
+        float frequency_penalty,
+        float presence_penalty,
+        int repeat_window) {
     if (!s || !s->checkpoint_valid || !s->logits) return -1;
+
+    enum { MAX_PENALTY_SAVE = 256 };
+    int saved_toks[MAX_PENALTY_SAVE];
+    float saved_vals[MAX_PENALTY_SAVE];
+    int n_saved = 0;
+
+    ds4_apply_repetition_penalties(
+        s, repeat_penalty, frequency_penalty, presence_penalty,
+        repeat_window, saved_toks, saved_vals, &n_saved, MAX_PENALTY_SAVE);
+
     int best = -1;
     float best_logit = DS4_NEG_INF;
     for (uint32_t i = 0; i < DS4_N_VOCAB; i++) {
@@ -80122,7 +80238,16 @@ int ds4_session_argmax_ignoring_eos(ds4_session *s,
             best_logit = v;
         }
     }
+
+    ds4_restore_repetition_penalties(s, saved_toks, saved_vals, n_saved);
     return best;
+}
+
+int ds4_session_argmax_ignoring_eos(ds4_session *s,
+                                    ds4_think_mode think_mode) {
+    return ds4_session_argmax_ignoring_eos_ex(
+        s, think_mode, DS4_DEFAULT_REPEAT_PENALTY, 0.0f, 0.0f,
+        DS4_DEFAULT_REPEAT_WINDOW);
 }
 
 int ds4_sample_logits(const float *logits, int n_vocab, float temperature,
@@ -80136,10 +80261,226 @@ int ds4_sample_logits(const float *logits, int n_vocab, float temperature,
     return token;
 }
 
-int ds4_session_sample(ds4_session *s, float temperature, int top_k, float top_p, float min_p, uint64_t *rng) {
+void ds4_apply_repetition_penalties(
+        ds4_session *s,
+        float repeat_penalty,
+        float frequency_penalty,
+        float presence_penalty,
+        int repeat_window,
+        int *saved_toks,
+        float *saved_vals,
+        int *n_saved,
+        int max_save) {
+    if (n_saved) *n_saved = 0;
+    if (!s || !s->logits || !s->checkpoint.v || s->checkpoint.len <= 0) return;
+    if (repeat_penalty <= 1.0f && frequency_penalty == 0.0f && presence_penalty == 0.0f) return;
+
+    if (repeat_window <= 0) repeat_window = DS4_DEFAULT_REPEAT_WINDOW;
+    const int n_tokens = s->checkpoint.len;
+    const int start = n_tokens > repeat_window ? n_tokens - repeat_window : 0;
+    const int eos = s->engine ? s->engine->vocab.eos_id : -1;
+    const int think_end = s->engine ? s->engine->vocab.think_end_id : -1;
+
+    enum { PENALTY_HASH_SIZE = 512 };
+    struct {
+        int tok;
+        int count;
+    } htable[PENALTY_HASH_SIZE];
+    for (int k = 0; k < PENALTY_HASH_SIZE; k++) {
+        htable[k].tok = -1;
+        htable[k].count = 0;
+    }
+
+    for (int i = start; i < n_tokens; i++) {
+        const int tok = s->checkpoint.v[i];
+        if (tok < 0 || (uint32_t)tok >= DS4_N_VOCAB) continue;
+        if (tok == eos || tok == think_end) continue;
+
+        uint32_t h = ((uint32_t)tok * 2654435761u) & (PENALTY_HASH_SIZE - 1u);
+        while (htable[h].tok != -1 && htable[h].tok != tok) {
+            h = (h + 1u) & (PENALTY_HASH_SIZE - 1u);
+        }
+        if (htable[h].tok == -1) {
+            htable[h].tok = tok;
+            htable[h].count = 1;
+        } else {
+            htable[h].count++;
+        }
+    }
+
+    for (int k = 0; k < PENALTY_HASH_SIZE && *n_saved < max_save; k++) {
+        if (htable[k].tok == -1) continue;
+        const int tok = htable[k].tok;
+        const int count = htable[k].count;
+
+        const int idx = *n_saved;
+        saved_toks[idx] = tok;
+        saved_vals[idx] = s->logits[tok];
+        (*n_saved)++;
+
+        float v = s->logits[tok];
+        if (repeat_penalty > 1.0f) {
+            if (v > 0.0f) v /= repeat_penalty;
+            else v *= repeat_penalty;
+        }
+        if (presence_penalty != 0.0f) {
+            v -= presence_penalty;
+        }
+        if (frequency_penalty != 0.0f) {
+            v -= (float)count * frequency_penalty;
+        }
+        s->logits[tok] = v;
+    }
+}
+
+static inline bool is_dry_breaker_token(const ds4_engine *e, int tok) {
+    if (!e || tok < 0 || tok >= e->vocab.n_vocab) return false;
+    if (tok == e->vocab.eos_id) return true;
+    const ds4_str s = e->vocab.token[tok];
+    if (!s.ptr || s.len == 0) return false;
+    for (uint64_t i = 0; i < s.len; i++) {
+        if (s.ptr[i] == '\n' || s.ptr[i] == '\r') return true;
+    }
+    return false;
+}
+
+void ds4_apply_dry_penalty(
+        ds4_session *s,
+        float dry_multiplier,
+        float dry_base,
+        int dry_allowed_length,
+        int dry_penalty_last_n,
+        int *saved_toks,
+        float *saved_vals,
+        int *n_saved,
+        int max_save) {
+    if (!s || !s->logits || !s->checkpoint.v || s->checkpoint.len <= 1) return;
+    if (dry_multiplier <= 0.0f || dry_base <= 1.0f || dry_allowed_length < 0) return;
+    if (dry_penalty_last_n <= 0) dry_penalty_last_n = 256;
+
+    const int n_tokens = s->checkpoint.len;
+    const int start = n_tokens > dry_penalty_last_n ? n_tokens - dry_penalty_last_n : 0;
+    const int last_token = s->checkpoint.v[n_tokens - 1];
+    if (is_dry_breaker_token(s->engine, last_token)) return;
+
+    /* Scan recent history for occurrences of last_token */
+    for (int i = start; i < n_tokens - 1 && *n_saved < max_save; i++) {
+        if (s->checkpoint.v[i] != last_token) continue;
+
+        /* Count how many tokens before position i match backwards from n_tokens - 1 */
+        int match_len = 1;
+        while (n_tokens - 1 - match_len >= 0 &&
+               i - match_len >= start &&
+               s->checkpoint.v[n_tokens - 1 - match_len] == s->checkpoint.v[i - match_len]) {
+            if (is_dry_breaker_token(s->engine, s->checkpoint.v[n_tokens - 1 - match_len])) {
+                break;
+            }
+            match_len++;
+        }
+
+        if (match_len >= dry_allowed_length) {
+            const int next_tok = s->checkpoint.v[i + 1];
+            if (next_tok < 0 || (uint32_t)next_tok >= DS4_N_VOCAB) continue;
+
+            const float p_exp = (float)(match_len - dry_allowed_length);
+            const float penalty = dry_multiplier * powf(dry_base, p_exp);
+
+            /* Check if next_tok was already penalized */
+            int existing = -1;
+            for (int k = 0; k < *n_saved; k++) {
+                if (saved_toks[k] == next_tok) {
+                    existing = k;
+                    break;
+                }
+            }
+
+            if (existing >= 0) {
+                float orig = saved_vals[existing];
+                float candidate_val = orig - penalty;
+                if (candidate_val < s->logits[next_tok]) {
+                    s->logits[next_tok] = candidate_val;
+                }
+            } else {
+                const int idx = *n_saved;
+                saved_toks[idx] = next_tok;
+                saved_vals[idx] = s->logits[next_tok];
+                (*n_saved)++;
+                s->logits[next_tok] -= penalty;
+            }
+        }
+    }
+}
+
+void ds4_restore_repetition_penalties(
+        ds4_session *s,
+        const int *saved_toks,
+        const float *saved_vals,
+        int n_saved) {
+    if (!s || !s->logits || !saved_toks || !saved_vals) return;
+    for (int i = 0; i < n_saved; i++) {
+        s->logits[saved_toks[i]] = saved_vals[i];
+    }
+}
+
+int ds4_session_sample_opts(
+        ds4_session *s,
+        float temperature,
+        int top_k,
+        float top_p,
+        float min_p,
+        float repeat_penalty,
+        float frequency_penalty,
+        float presence_penalty,
+        int repeat_window,
+        float dry_multiplier,
+        float dry_base,
+        int dry_allowed_length,
+        int dry_penalty_last_n,
+        uint64_t *rng) {
     if (!s || !s->checkpoint_valid || !s->logits) return -1;
-    return sample_top_p_min_p(s->logits, DS4_N_VOCAB, temperature, top_k,
-                              top_p, min_p, rng, s->sample_probs);
+
+    enum { MAX_PENALTY_SAVE = 512 };
+    int saved_toks[MAX_PENALTY_SAVE];
+    float saved_vals[MAX_PENALTY_SAVE];
+    int n_saved = 0;
+
+    ds4_apply_repetition_penalties(
+        s, repeat_penalty, frequency_penalty, presence_penalty,
+        repeat_window, saved_toks, saved_vals, &n_saved, MAX_PENALTY_SAVE);
+
+    if (dry_multiplier > 0.0f) {
+        ds4_apply_dry_penalty(
+            s, dry_multiplier, dry_base, dry_allowed_length, dry_penalty_last_n,
+            saved_toks, saved_vals, &n_saved, MAX_PENALTY_SAVE);
+    }
+
+    const int token = sample_top_p_min_p(s->logits, DS4_N_VOCAB, temperature, top_k,
+                                         top_p, min_p, rng, s->sample_probs);
+
+    ds4_restore_repetition_penalties(s, saved_toks, saved_vals, n_saved);
+    return token;
+}
+
+int ds4_session_sample_ex(
+        ds4_session *s,
+        float temperature,
+        int top_k,
+        float top_p,
+        float min_p,
+        float repeat_penalty,
+        float frequency_penalty,
+        float presence_penalty,
+        int repeat_window,
+        uint64_t *rng) {
+    return ds4_session_sample_opts(s, temperature, top_k, top_p, min_p,
+                                  repeat_penalty, frequency_penalty, presence_penalty,
+                                  repeat_window, 0.0f, 1.75f, 2, 256, rng);
+}
+
+int ds4_session_sample(ds4_session *s, float temperature, int top_k, float top_p, float min_p, uint64_t *rng) {
+    return ds4_session_sample_ex(s, temperature, top_k, top_p, min_p,
+                                 DS4_DEFAULT_REPEAT_PENALTY, 0.0f, 0.0f,
+                                 DS4_DEFAULT_REPEAT_WINDOW, rng);
 }
 
 int ds4_session_top_logprobs(ds4_session *s, ds4_token_score *out, int k) {
@@ -80840,13 +81181,15 @@ static bool ds4_session_prepare_dspark_draft_impl(ds4_session *s,
                 feature_count <= (uint64_t)SIZE_MAX / sizeof(float)) {
                 const double confidence_t0 = DS4_DSPARK_PROP_T0();
                 const uint64_t hidden_bytes = hidden_count * sizeof(float);
-                float *hidden_rows = xmalloc((size_t)hidden_bytes);
-                float *markov_state =
-                    xmalloc((size_t)dw->markov_rank * sizeof(markov_state[0]));
-                float *features =
-                    xmalloc((size_t)feature_count * sizeof(features[0]));
-                float *confidence_logits =
-                    xmalloc((size_t)dw->block_size * sizeof(confidence_logits[0]));
+                float *hidden_rows = s->dspark_hidden_rows;
+                float markov_state[256];
+                float *features = s->dspark_conf_features;
+                float confidence_logits[DS4_DSPARK_MAX_BLOCK_SIZE];
+                bool owned_hidden = false;
+                if (!hidden_rows) {
+                    hidden_rows = xmalloc((size_t)hidden_bytes);
+                    owned_hidden = true;
+                }
                 confidence_ok =
                     ds4_gpu_tensor_bytes(
                         metal_graph_dspark_confidence_hidden(&s->graph)) >=
@@ -80872,10 +81215,7 @@ static bool ds4_session_prepare_dspark_draft_impl(ds4_session *s,
                                                     confidence_len,
                                                     confidence_threshold);
                 }
-                free(confidence_logits);
-                free(features);
-                free(markov_state);
-                free(hidden_rows);
+                if (owned_hidden) free(hidden_rows);
                 DS4_DSPARK_PROP_ADD(propose_confidence_ms, confidence_t0);
             }
         }
@@ -81336,7 +81676,11 @@ int ds4_session_eval(ds4_session *s, int token, char *err, size_t errlen) {
         probe_mtp = false;
     }
 #endif
-    return ds4_session_eval_probe_tp(s, token, probe_mtp, err, errlen);
+    int rc = ds4_session_eval_probe_tp(s, token, probe_mtp, err, errlen);
+    if (rc == 0 && s && s->ngram_enabled && s->ngram.entries && s->checkpoint.len > (int)s->ngram.n) {
+        ds4_ngram_add(&s->ngram, s->checkpoint.v + s->checkpoint.len - s->ngram.n - 1, token);
+    }
+    return rc;
 }
 
 #ifndef DS4_NO_GPU
@@ -84222,6 +84566,7 @@ static int ds4_session_eval_dspark_speculative_argmax(
     }
 
     int draft_n = (int)s->dspark_draft_len;
+    s->dspark_last_attempted_drafts = (uint32_t)draft_n;
     if (draft_n > max_tokens - n_accept) draft_n = max_tokens - n_accept;
     if (draft_n > accepted_cap - n_accept) draft_n = accepted_cap - n_accept;
     int room = s->ctx_size - s->checkpoint.len;
@@ -84809,6 +85154,7 @@ static int ds4_session_eval_dspark_speculative_stochastic(
     }
 
     int draft_n = (int)s->dspark_draft_len;
+    s->dspark_last_attempted_drafts = (uint32_t)draft_n;
     if (draft_n > max_tokens - n_accept) draft_n = max_tokens - n_accept;
     if (draft_n > accepted_cap - n_accept) draft_n = accepted_cap - n_accept;
     int room = s->ctx_size - s->checkpoint.len;
@@ -88659,6 +89005,23 @@ static int ds4_session_eval_speculative_argmax_impl(
                                                           errlen);
     }
 
+    if (s->ngram_enabled && s->ngram.entries && s->checkpoint.len >= (int)s->ngram.n &&
+        max_tokens > n_accept && accepted_cap > n_accept) {
+        int k_max = (int)s->ngram_draft_k;
+        if (k_max > DS4_DSPARK_MAX_BLOCK_SIZE) k_max = DS4_DSPARK_MAX_BLOCK_SIZE;
+        if (k_max > max_tokens - n_accept) k_max = max_tokens - n_accept;
+        if (k_max > accepted_cap - n_accept) k_max = accepted_cap - n_accept;
+        int n_d = ds4_ngram_draft(&s->ngram, s->checkpoint.v, s->checkpoint.len,
+                                  first_token, s->dspark_draft_tokens, k_max);
+        if (n_d > 0) {
+            s->dspark_draft_len = (uint32_t)n_d;
+            s->dspark_draft_valid = true;
+            return ds4_session_eval_dspark_speculative_argmax(
+                s, n_accept, max_tokens, eos_token, ignore_eos, think_mode,
+                accepted, accepted_cap, err, errlen);
+        }
+    }
+
     if (metal_graph_cuda_splitkv_spec_requested() &&
         (!e->mtp_ready || e->mtp_draft_tokens <= 1)) {
         int extra = ds4_session_eval_splitkv_spec_after_first(
@@ -89668,6 +90031,10 @@ void ds4_session_rewind(ds4_session *s, int pos) {
     s->glm_mtp_rollback_valid = false;
     ds4_session_glm_cap_dense_cache(s);
 #endif
+}
+
+uint32_t ds4_session_dspark_last_attempted(const ds4_session *s) {
+    return s ? s->dspark_last_attempted_drafts : 0;
 }
 
 int ds4_session_pos(ds4_session *s) {

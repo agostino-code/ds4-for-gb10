@@ -2,6 +2,11 @@
 
 [README](../README.md)
 
+> **CUDA-only build.** This repository is stripped of the Metal (Apple) and
+> ROCm (AMD) backends. Instructions below that reference `--metal`, macOS,
+> M-series Macs, or Strix Halo apply only to the upstream fork; use the CUDA /
+> GB10 paths documented in [DGX_SPARK.md](DGX_SPARK.md) instead.
+
 Read [CONTRIBUTING.md](../CONTRIBUTING.md) before proposing an inference change.
 The [release QA guide](../QA_BEFORE_RELEASES.md) defines the hardware matrix,
 checkpoint-matched quality tests, long-context agent tasks, and speed checks.

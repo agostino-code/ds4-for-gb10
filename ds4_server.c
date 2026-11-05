@@ -815,12 +815,25 @@ typedef struct {
     float temperature;
     float top_p;
     float min_p;
+    float repeat_penalty;
+    float frequency_penalty;
+    float presence_penalty;
+    int repeat_window;
+    float dry_multiplier;
+    float dry_base;
+    int dry_allowed_length;
+    int dry_penalty_last_n;
     /* Explicit client sampling wins even in thinking mode; the fixed
      * DeepSeek-style thinking defaults apply only to omitted knobs. */
     bool temperature_set;
     bool top_p_set;
     bool min_p_set;
     bool top_k_set;
+    bool repeat_penalty_set;
+    bool frequency_penalty_set;
+    bool presence_penalty_set;
+    bool repeat_window_set;
+    bool dry_multiplier_set;
     uint64_t seed;
     bool stream;
     bool stream_include_usage;
@@ -993,6 +1006,14 @@ static void request_init(request *r, req_kind kind, int max_tokens) {
     r->temperature = DS4_DEFAULT_TEMPERATURE;
     r->top_p = DS4_DEFAULT_TOP_P;
     r->min_p = DS4_DEFAULT_MIN_P;
+    r->repeat_penalty = DS4_DEFAULT_REPEAT_PENALTY;
+    r->frequency_penalty = 0.0f;
+    r->presence_penalty = 0.0f;
+    r->repeat_window = DS4_DEFAULT_REPEAT_WINDOW;
+    r->dry_multiplier = 0.0f;
+    r->dry_base = 1.75f;
+    r->dry_allowed_length = 2;
+    r->dry_penalty_last_n = 256;
     r->think_mode = DS4_THINK_HIGH;
 }
 
@@ -1007,6 +1028,50 @@ static bool request_validate_ignore_eos(const request *r,
     snprintf(err, errlen,
              "ignore_eos requires an explicit temperature of 0");
     return false;
+}
+
+static int parse_sampling_penalty_key(const char *key, const char **p, request *r) {
+    if (!strcmp(key, "repeat_penalty") || !strcmp(key, "repetition_penalty")) {
+        double v = 0.0;
+        if (!json_number(p, &v)) return -1;
+        r->repeat_penalty = (float)v;
+        r->repeat_penalty_set = true;
+        return 1;
+    } else if (!strcmp(key, "presence_penalty")) {
+        double v = 0.0;
+        if (!json_number(p, &v)) return -1;
+        r->presence_penalty = (float)v;
+        r->presence_penalty_set = true;
+        return 1;
+    } else if (!strcmp(key, "frequency_penalty")) {
+        double v = 0.0;
+        if (!json_number(p, &v)) return -1;
+        r->frequency_penalty = (float)v;
+        r->frequency_penalty_set = true;
+        return 1;
+    } else if (!strcmp(key, "repeat_window") || !strcmp(key, "repeat_last_n")) {
+        if (!json_int(p, &r->repeat_window)) return -1;
+        r->repeat_window_set = true;
+        return 1;
+    } else if (!strcmp(key, "dry_multiplier")) {
+        double v = 0.0;
+        if (!json_number(p, &v)) return -1;
+        r->dry_multiplier = (float)v;
+        r->dry_multiplier_set = true;
+        return 1;
+    } else if (!strcmp(key, "dry_base")) {
+        double v = 0.0;
+        if (!json_number(p, &v)) return -1;
+        r->dry_base = (float)v;
+        return 1;
+    } else if (!strcmp(key, "dry_allowed_length")) {
+        if (!json_int(p, &r->dry_allowed_length)) return -1;
+        return 1;
+    } else if (!strcmp(key, "dry_penalty_last_n")) {
+        if (!json_int(p, &r->dry_penalty_last_n)) return -1;
+        return 1;
+    }
+    return 0;
 }
 
 static void request_free(request *r) {
@@ -4212,6 +4277,13 @@ static bool parse_chat_request(ds4_engine *e, server *s, const char *body, int d
                 goto bad;
             }
             r->top_k_set = true;
+        } else if (!strcmp(key, "repeat_penalty") || !strcmp(key, "repetition_penalty") ||
+                   !strcmp(key, "presence_penalty") || !strcmp(key, "frequency_penalty") ||
+                   !strcmp(key, "repeat_window") || !strcmp(key, "repeat_last_n")) {
+            if (parse_sampling_penalty_key(key, &p, r) < 0) {
+                free(key);
+                goto bad;
+            }
         } else if (!strcmp(key, "seed")) {
             double v = 0.0;
             if (!json_number(&p, &v)) {
@@ -4443,6 +4515,13 @@ static bool parse_anthropic_request(ds4_engine *e, server *s, const char *body, 
                 goto bad;
             }
             r->top_k_set = true;
+        } else if (!strcmp(key, "repeat_penalty") || !strcmp(key, "repetition_penalty") ||
+                   !strcmp(key, "presence_penalty") || !strcmp(key, "frequency_penalty") ||
+                   !strcmp(key, "repeat_window") || !strcmp(key, "repeat_last_n")) {
+            if (parse_sampling_penalty_key(key, &p, r) < 0) {
+                free(key);
+                goto bad;
+            }
         } else if (!strcmp(key, "stream")) {
             if (!json_bool(&p, &r->stream)) {
                 free(key);
@@ -5436,6 +5515,13 @@ static bool parse_responses_request(ds4_engine *e, server *s, const char *body, 
             }
             r->top_p = (float)v;
             r->top_p_set = true;
+        } else if (!strcmp(key, "repeat_penalty") || !strcmp(key, "repetition_penalty") ||
+                   !strcmp(key, "presence_penalty") || !strcmp(key, "frequency_penalty") ||
+                   !strcmp(key, "repeat_window") || !strcmp(key, "repeat_last_n")) {
+            if (parse_sampling_penalty_key(key, &p, r) < 0) {
+                free(key);
+                goto bad;
+            }
         } else if (!strcmp(key, "stream")) {
             if (!json_bool(&p, &r->stream)) {
                 free(key);
@@ -5682,6 +5768,13 @@ static bool parse_completion_request(ds4_engine *e, const char *body, int def_to
                 goto bad;
             }
             r->top_k_set = true;
+        } else if (!strcmp(key, "repeat_penalty") || !strcmp(key, "repetition_penalty") ||
+                   !strcmp(key, "presence_penalty") || !strcmp(key, "frequency_penalty") ||
+                   !strcmp(key, "repeat_window") || !strcmp(key, "repeat_last_n")) {
+            if (parse_sampling_penalty_key(key, &p, r) < 0) {
+                free(key);
+                goto bad;
+            }
         } else if (!strcmp(key, "seed")) {
             double v = 0.0;
             if (!json_number(&p, &v)) {
@@ -10169,6 +10262,8 @@ struct server {
     pthread_t *slot_threads;
     pthread_t decode_thread;
     int default_tokens;
+    float default_repeat_penalty;
+    int default_repeat_window;
     kv_disk_cache kv;
     tool_memory tool_mem;
     server_image_cache image_cache; /* Protected by inference_mu. */
@@ -13957,6 +14052,9 @@ decode_again:
     dsml_decode_tracker_init(&dsml_tracker);
     dsml_tracker.model_syntax = j->req.model_syntax;
 
+    struct dspark_controller quench;
+    dspark_init(&quench, 2.16f, 5);
+
     server_generation_enter(s);
     while (!g_stop_requested && !job_cancelled(j) && completion < max_tokens &&
            ds4_session_pos(slot->session) < ds4_session_ctx(slot->session)) {
@@ -13970,6 +14068,10 @@ decode_again:
         int top_k = j->req.top_k;
         float top_p = j->req.top_p;
         float min_p = j->req.min_p;
+        float repeat_penalty = j->req.repeat_penalty_set ? j->req.repeat_penalty : s->default_repeat_penalty;
+        float frequency_penalty = j->req.frequency_penalty;
+        float presence_penalty = j->req.presence_penalty;
+        int repeat_window = j->req.repeat_window_set ? j->req.repeat_window : s->default_repeat_window;
         if (ds4_think_mode_enabled(j->req.think_mode)) {
             /* Thinking keeps the fixed DeepSeek-style sampling defaults, but
              * only for knobs the client left out: an explicit request value
@@ -13979,6 +14081,7 @@ decode_again:
             if (!j->req.top_k_set) top_k = 0;
             if (!j->req.top_p_set) top_p = DS4_DEFAULT_TOP_P;
             if (!j->req.min_p_set) min_p = DS4_DEFAULT_MIN_P;
+            if (!j->req.repeat_penalty_set) repeat_penalty = s->default_repeat_penalty;
         }
         const bool greedy_tool_syntax = !thinking.inside && in_tool_call &&
             !dsml_decode_state_uses_payload_sampling(dsml_state);
@@ -13988,10 +14091,18 @@ decode_again:
         }
         const int eos_token = ds4_token_eos(s->engine);
         int token = j->req.ignore_eos ?
-            ds4_session_argmax_ignoring_eos(slot->session,
-                                            j->req.think_mode) :
-            ds4_session_sample(slot->session, temperature, top_k,
-                               top_p, min_p, &rng);
+            ds4_session_argmax_ignoring_eos_ex(slot->session,
+                                                j->req.think_mode,
+                                                repeat_penalty,
+                                                frequency_penalty,
+                                                presence_penalty,
+                                                repeat_window) :
+            ds4_session_sample_opts(slot->session, temperature, top_k,
+                                    top_p, min_p, repeat_penalty,
+                                    frequency_penalty, presence_penalty,
+                                    repeat_window, j->req.dry_multiplier,
+                                    j->req.dry_base, j->req.dry_allowed_length,
+                                    j->req.dry_penalty_last_n, &rng);
         if (token < 0) {
             finish = "error";
             snprintf(err, sizeof(err), "failed to select a non-EOS token");
@@ -14009,7 +14120,9 @@ decode_again:
         int toks[17];
         int ntok = 0;
         const int block_start = ds4_session_pos(slot->session);
+        const bool dspark_allowed = dspark_step_should_speculate(&quench);
         if (!s->batched_mode &&
+            dspark_allowed &&
             ds4_engine_mtp_draft_tokens(s->engine) > 1 &&
             getenv("DS4_MTP_SPEC_DISABLE") == NULL)
         {
@@ -14030,6 +14143,8 @@ decode_again:
                 finish = "error";
                 break;
             }
+            uint32_t attempted = ds4_session_dspark_last_attempted(slot->session);
+            dspark_update_proportional(&quench, ntok, attempted > 0 ? (int)attempted : 4);
         } else if (s->batched_mode && s->qwen4_batch_mtp &&
                    max_tokens - completion >= 2 && !j->req.ignore_eos &&
                    (!ds4_engine_mtp_exact_sampling(s->engine) || temperature == 0.0f) &&
@@ -15454,6 +15569,8 @@ typedef struct {
     int port;
     int ctx_size;
     int default_tokens;
+    float default_repeat_penalty;
+    int default_repeat_window;
     const char *chdir_path;
     const char *trace_path;
     const char *kv_disk_dir;
@@ -15612,6 +15729,8 @@ static server_config parse_options(int argc, char **argv) {
         .port = 8000,
         .ctx_size = 32768,
         .default_tokens = 393216,
+        .default_repeat_penalty = DS4_DEFAULT_REPEAT_PENALTY,
+        .default_repeat_window = DS4_DEFAULT_REPEAT_WINDOW,
         .tool_memory_max_ids = DS4_TOOL_MEMORY_DEFAULT_MAX_IDS,
         .mixed_prefill_quantum = 128,
     };
@@ -15686,7 +15805,7 @@ static server_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "--dspark-strict")) {
             c.engine.dspark = true;
             c.engine.dspark_strict = true;
-        } else if (!strcmp(arg, "--mtp-exact-sampling")) {
+        } else if (!strcmp(arg, "--mtp-exact-sampling") || !strcmp(arg, "--dspark-exact-sampling")) {
             c.engine.dspark_exact_sampling = true;
         } else if (!strcmp(arg, "-c") || !strcmp(arg, "--ctx")) {
             c.ctx_size = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
@@ -15729,6 +15848,16 @@ static server_config parse_options(int argc, char **argv) {
             c.disable_exact_dsml_tool_replay = true;
         } else if (!strcmp(arg, "--tool-memory-max-ids")) {
             c.tool_memory_max_ids = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--repeat-penalty") || !strcmp(arg, "--repetition-penalty")) {
+            c.default_repeat_penalty = parse_float_arg(need_arg(&i, argc, argv, arg), arg, 0.0f, 10.0f);
+        } else if (!strcmp(arg, "--repeat-window") || !strcmp(arg, "--repeat-last-n")) {
+            c.default_repeat_window = parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--spec-ngram")) {
+            c.engine.spec_ngram = true;
+        } else if (!strcmp(arg, "--spec-ngram-n")) {
+            c.engine.spec_ngram_n = (uint32_t)parse_int_arg(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--spec-ngram-draft")) {
+            c.engine.spec_ngram_draft = (uint32_t)parse_int_arg(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--quality")) {
             c.engine.quality = true;
         } else if (!strcmp(arg, "--ssd-streaming")) {
@@ -15982,6 +16111,8 @@ int main(int argc, char **argv) {
     s.mixed_prefill_quantum = cfg.mixed_prefill_quantum;
     s.last_prefill_slot = slot_count - 1;
     s.default_tokens = cfg.default_tokens;
+    s.default_repeat_penalty = cfg.default_repeat_penalty;
+    s.default_repeat_window = cfg.default_repeat_window;
     s.disable_exact_dsml_tool_replay = cfg.disable_exact_dsml_tool_replay;
     s.tool_mem.max_entries = cfg.tool_memory_max_ids;
     s.enable_cors = cfg.enable_cors;

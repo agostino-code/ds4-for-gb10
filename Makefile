@@ -99,7 +99,7 @@ ds4-agent: ds4_agent.o ds4_help.o ds4_prompt_prefix.o ds4_web.o ds4_kvstore.o li
 	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
 
 gguf-tools/quality-testing/score_official.o: gguf-tools/quality-testing/score_official.c ds4.h
-	$(CC) $(filter-out -ffast-math,$(QUALITY_CFLAGS)) $(ROCM_HOST_CFLAGS) -I. -c -o $@ $<
+	$(CC) $(filter-out -ffast-math,$(QUALITY_CFLAGS)) -I. -c -o $@ $<
 
 gguf-tools/quality-testing/score_official: gguf-tools/quality-testing/score_official.o $(CORE_OBJS) rax.o ds4_gpu_args.o
 	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
@@ -574,15 +574,9 @@ tests/test_qwen4_vision: tests/test_qwen4_vision.o $(CORE_OBJS)
 test-qwen4-kernels: $(QWEN4_KERNEL_TEST)
 	./$(QWEN4_KERNEL_TEST)
 
-.PHONY: test-qwen4-hc-math
-test-qwen4-hc-math: $(QWEN4_KERNEL_TEST)
-	DS4_METAL_MATH_SAFE=0 DS4_TEST_QWEN4_M1_REUSE_ONLY=hc ./$(QWEN4_KERNEL_TEST)
-	DS4_METAL_MATH_SAFE=1 DS4_TEST_QWEN4_M1_REUSE_ONLY=hc ./$(QWEN4_KERNEL_TEST)
-
-.PHONY: test-metal-device-policy
+.PHONY: test-qwen4-q2
 test-qwen4-q2: $(QWEN4_KERNEL_TEST) tests/test_qwen4_moe_mm_specialize
 	DS4_TEST_QWEN4_MV_EXACT=1 ./$(QWEN4_KERNEL_TEST)
-	DS4_TEST_QWEN4_M1_REUSE_ONLY=q2 ./$(QWEN4_KERNEL_TEST)
 	./tests/test_qwen4_moe_mm_specialize
 
 # DS4_QWEN4_SNAPSHOT=<HF checkpoint dir> DS4_QWEN4_MMPROJ=<mmproj.gguf> DS4_QWEN4_IMAGE=<image>
@@ -591,14 +585,10 @@ test-qwen4-vision: tests/test_qwen4_vision
 	  { echo "set DS4_QWEN4_SNAPSHOT, DS4_QWEN4_MMPROJ and DS4_QWEN4_IMAGE"; exit 1; }
 	python3 tests/qwen4_vision_ref.py --snapshot "$(DS4_QWEN4_SNAPSHOT)" --mmproj "$(DS4_QWEN4_MMPROJ)" --image "$(DS4_QWEN4_IMAGE)"
 
-$(GLM53_KDA_ROCM_TEST): tests/test_glm53_kda_rocm.o ds4_rocm.o ds4_rocm_unavailable.o ds4_image.o $(ROCM_MMQ_OBJS)
-	$(HIPCC) $(ROCM_CFLAGS) -o $@ $^ $(ROCM_LDLIBS)
-
-.PHONY: test-glm-attention-rocm
 tests/test_linux_memory: tests/test_linux_memory.c ds4_linux_memory.h
 	$(CC) $(CFLAGS) -I. -o $@ $<
 
-.PHONY: test-linux-memory test-rocm-memory
+.PHONY: test-linux-memory
 test-linux-memory: tests/test_linux_memory
 	./tests/test_linux_memory
 
@@ -692,7 +682,7 @@ tests/test_qwen4_mtp_prefill.o: tests/test_qwen4_mtp_prefill.c ds4.c ds4.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
 
 tests/test_qwen4_mtp_prefill: tests/test_qwen4_mtp_prefill.o $(filter-out ds4.o,$(CORE_OBJS))
-	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(METAL_LDLIBS)
+	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -o $@ $^ $(LDLIBS)
 
 tests/test_qwen4_generation.o: tests/test_qwen4_generation.c ds4.c ds4.h ds4_qwen4_vision.h
 	$(CC) $(filter-out -ffast-math,$(CFLAGS)) -Wno-unused-function -I. -c -o $@ $<
@@ -713,7 +703,7 @@ tests/test_qwen4_prefill.o: tests/test_qwen4_prefill.c ds4.h
 tests/test_qwen4_prefill: tests/test_qwen4_prefill.o $(CORE_OBJS)
 	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
 
-ds4.o ds4_cpu.o ds4_cpu_test_hooks.o ds4_cuda_test_hooks.o ds4_metal.o ds4_cuda.o ds4_rocm.o tests/test_qwen4_cuda.o tests/test_qwen4_kernels.o tests/test_qwen4_ngram_state.o tests/test_qwen4_mtp_prefill.o tests/test_qwen4_mtp_policy.o tests/test_qwen4_memory.o: ds4_qwen4_vision.h
+ds4.o ds4_cpu.o ds4_cpu_test_hooks.o ds4_cuda_test_hooks.o ds4_cuda.o tests/test_qwen4_cuda.o tests/test_qwen4_kernels.o tests/test_qwen4_ngram_state.o tests/test_qwen4_mtp_prefill.o tests/test_qwen4_mtp_policy.o tests/test_qwen4_memory.o: ds4_qwen4_vision.h
 
 ds4_cuda.o: ds4_cuda.cu ds4_gpu.h ds4_gpu_copy.h ds4_gpu_tp.h ds4_gpu_mgpu.h ds4_linux_memory.h ds4_deepseek41_gpu.h ds4_deepseek41_cuda.cuh ds4_glm53_vision_gpu.cuh ds4_deepseek4_vision_gpu.cuh ds4_qwen4_cuda.cuh ds4_image.h ds4_iq2_tables_cuda.inc cuda/mmq/ds4_mmq.h
 	$(NVCC) $(NVCCFLAGS) -c -o $@ ds4_cuda.cu
@@ -772,6 +762,12 @@ tests/test_sampling.o: tests/test_sampling.c ds4.h
 tests/test_sampling: tests/test_sampling.o ds4_cpu_test_hooks.o ds4_image.o ds4_distributed.o ds4_tp.o ds4_ssd.o ds4_layer_pack.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+tests/test_dspark_quench.o: tests/test_dspark_quench.c ds4.h
+	$(CC) $(CFLAGS) -I. -c -o $@ $<
+
+tests/test_dspark_quench: tests/test_dspark_quench.o ds4_dspark_quench.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+
 tests/test_session_state.o: tests/test_session_state.c ds4.c ds4.h ds4_gpu.h ds4_image.h ds4_tp.h
 	$(CC) $(CFLAGS) -Wno-unused-function -DDS4_NO_GPU -I. -c -o $@ $<
 
@@ -790,36 +786,15 @@ tests/test_deepseek_indexer.o: tests/test_deepseek_indexer.c ds4.c ds4.h ds4_gpu
 tests/test_deepseek_indexer: tests/test_deepseek_indexer.o $(filter-out ds4.o,$(CORE_OBJS))
 	$(DS4_LINK) -o $@ $^ $(DS4_LINK_LIBS)
 
-tests/test_tp_commands.o: tests/test_tp_commands.c ds4_tp.c ds4_tp.h ds4.h ds4_gpu_tp.h
-	$(CC) $(CFLAGS) -I. -c -o $@ $<
-
-tests/test_tp_commands: tests/test_tp_commands.o $(filter-out ds4_tp.o,$(CPU_CORE_OBJS))
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
-
-tests/test_tp_rdma.o: tests/test_tp_rdma.c ds4_tp.c ds4_tp.h ds4.h ds4_gpu_tp.h
-	$(CC) $(CFLAGS) -I. -c -o $@ $<
-
-tests/test_tp_rdma: tests/test_tp_rdma.o $(filter-out ds4_tp.o,$(CPU_CORE_OBJS))
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
-
 tests/test_tp_link.o: tests/test_tp_link.c ds4_tp.h ds4.h
 	$(CC) $(CFLAGS) -I. -c -o $@ $<
 
 tests/test_tp_link: tests/test_tp_link.o $(CPU_CORE_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-tests/test_tp_tcp.o: tests/test_tp_tcp.c ds4_tp.c ds4_tp.h ds4.h ds4_gpu_tp.h
-	$(CC) $(CFLAGS) -I. -c -o $@ $<
-
-tests/test_tp_tcp: tests/test_tp_tcp.o $(filter-out ds4_tp.o,$(CPU_CORE_OBJS))
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
-
 .PHONY: test-session-state
-test-session-state: tests/test_session_state tests/test_tp_commands tests/test_tp_rdma tests/test_tp_tcp
+test-session-state: tests/test_session_state
 	./tests/test_session_state
-	./tests/test_tp_commands
-	./tests/test_tp_rdma
-	./tests/test_tp_tcp
 
 ifneq ($(UNAME_S),Darwin)
 tests/test_gpu_xdev.o: tests/test_gpu_xdev.c ds4_gpu.h ds4_gpu_mgpu.h
@@ -906,7 +881,7 @@ tests/test_web_recovery: tests/test_web_recovery.c ds4_web.c ds4_web.h
 
 test: ds4_test ds4_agent_test ds4-eval q4k-dot-test mxfp4-dot-test test-session-state test-linux-memory test-engram test-web-recovery \
 	tests/test_layer_pack tests/test_engine_mgpu_placement tests/test_gpu_args \
-	tests/test_deepseek4_vision_image tests/test_image_decode tests/test_prompt_prefix $(SAMPLING_TEST) ds4 ds4-server ds4-bench ds4-agent
+	tests/test_deepseek4_vision_image tests/test_image_decode tests/test_prompt_prefix $(SAMPLING_TEST) tests/test_dspark_quench ds4 ds4-server ds4-bench ds4-agent
 	./ds4-eval --validate-cases
 	./ds4-eval --self-test-extractors
 	./ds4_agent_test
@@ -917,6 +892,7 @@ test: ds4_test ds4_agent_test ds4-eval q4k-dot-test mxfp4-dot-test test-session-
 	./tests/test_gpu_args_cli.sh
 	./tests/test_prompt_prefix
 	./tests/test_sampling
+	./tests/test_dspark_quench
 	./tests/test_deepseek4_vision_image
 	./tests/test_image_decode
 

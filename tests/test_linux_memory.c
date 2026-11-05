@@ -44,8 +44,11 @@ int main(void) {
 
     // Anti-thrashing check
     uint64_t safe_budget = 0;
-    assert(ds4_linux_spark_anti_thrashing_check(10ull * 1024ull * 1024ull * 1024ull, &safe_budget) == true);
+    /* Test boundary semantics against calculated safe_budget rather than assuming fixed idle RAM */
+    (void)ds4_linux_spark_anti_thrashing_check(0, &safe_budget);
     assert(safe_budget > 0);
+    assert(ds4_linux_spark_anti_thrashing_check(safe_budget, &safe_budget) == true);
+    assert(ds4_linux_spark_anti_thrashing_check(safe_budget + 1, &safe_budget) == false);
 
     puts("Linux nonmovable memory: PASS");
     return 0;

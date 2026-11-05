@@ -20,8 +20,6 @@ if command -v taskset >/dev/null 2>&1; then
     TASKSET_CMD="taskset -c 5-9,15-19"
 fi
 
-export DS4_CUDA_DIRECT_MODEL=1
-
 echo "=========================================================="
 echo "  DGX Spark (SM121) Full Matrix Benchmark Sweep"
 echo "  Model: $MODEL"

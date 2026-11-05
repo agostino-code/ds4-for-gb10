@@ -39,6 +39,7 @@ struct dspark_controller {
 void dspark_init(struct dspark_controller *c, float guard, int k_draft);
 bool dspark_step_should_speculate(struct dspark_controller *c);
 void dspark_update(struct dspark_controller *c, int accepted_tokens);
+void dspark_update_proportional(struct dspark_controller *c, int accepted_tokens, int attempted_tokens);
 
 /* Prefix cache matching */
 size_t ds4_find_matching_prefix_length(const int *old_tokens, size_t old_len,
@@ -96,9 +97,11 @@ typedef struct {
     float logprob;
 } ds4_token_score;
 
-#define DS4_DEFAULT_TEMPERATURE 1.0f
-#define DS4_DEFAULT_TOP_P 1.0f
+#define DS4_DEFAULT_TEMPERATURE 0.6f
+#define DS4_DEFAULT_TOP_P 0.95f
 #define DS4_DEFAULT_MIN_P 0.05f
+#define DS4_DEFAULT_REPEAT_PENALTY 1.10f
+#define DS4_DEFAULT_REPEAT_WINDOW 128
 
 typedef struct ds4_engine ds4_engine;
 typedef struct ds4_session ds4_session;
@@ -197,6 +200,9 @@ typedef struct {
     bool dspark_strict;
     bool dspark_exact_sampling;
     bool dspark_confidence_threshold_set;
+    bool spec_ngram;
+    uint32_t spec_ngram_n;
+    uint32_t spec_ngram_draft;
     bool cuda_tensor_parallel;
     bool ssd_streaming;
     bool ssd_streaming_cold;
@@ -529,9 +535,29 @@ int ds4_session_argmax(ds4_session *s);
 int ds4_session_argmax_excluding(ds4_session *s, int excluded_id);
 int ds4_session_argmax_ignoring_eos(ds4_session *s,
                                     ds4_think_mode think_mode);
+int ds4_session_argmax_ignoring_eos_ex(ds4_session *s,
+                                       ds4_think_mode think_mode,
+                                       float repeat_penalty,
+                                       float frequency_penalty,
+                                       float presence_penalty,
+                                       int repeat_window);
 int ds4_sample_logits(const float *logits, int n_vocab, float temperature,
                       int top_k, float top_p, float min_p, uint64_t *rng);
 int ds4_session_sample(ds4_session *s, float temperature, int top_k, float top_p, float min_p, uint64_t *rng);
+int ds4_session_sample_ex(ds4_session *s, float temperature, int top_k, float top_p, float min_p,
+                          float repeat_penalty, float frequency_penalty, float presence_penalty,
+                          int repeat_window, uint64_t *rng);
+int ds4_session_sample_opts(ds4_session *s, float temperature, int top_k, float top_p, float min_p,
+                           float repeat_penalty, float frequency_penalty, float presence_penalty,
+                           int repeat_window, float dry_multiplier, float dry_base,
+                           int dry_allowed_length, int dry_penalty_last_n, uint64_t *rng);
+void ds4_apply_repetition_penalties(ds4_session *s, float repeat_penalty, float frequency_penalty,
+                                    float presence_penalty, int repeat_window,
+                                    int *saved_toks, float *saved_vals, int *n_saved, int max_save);
+void ds4_apply_dry_penalty(ds4_session *s, float dry_multiplier, float dry_base,
+                           int dry_allowed_length, int dry_penalty_last_n,
+                           int *saved_toks, float *saved_vals, int *n_saved, int max_save);
+void ds4_restore_repetition_penalties(ds4_session *s, const int *saved_toks, const float *saved_vals, int n_saved);
 #ifdef DS4_TEST_HOOKS
 /* Teacher-force a V4.1 verification block, returning logits after each token. */
 int ds4_test_ds41_verify_tokens(ds4_session *s, const int *tokens, int count,
@@ -647,6 +673,7 @@ bool ds4_session_rewind_speculative(ds4_session *s, int pos);
  * Otherwise the checkpoint becomes invalid: sync the retained prefix before eval.
  * Callers retaining images must use sync_multimodal for that rebuild. */
 void ds4_session_rewind(ds4_session *s, int pos);
+uint32_t ds4_session_dspark_last_attempted(const ds4_session *s);
 int ds4_session_pos(ds4_session *s);
 int ds4_session_ctx(ds4_session *s);
 int ds4_session_prefill_cap(ds4_session *s);

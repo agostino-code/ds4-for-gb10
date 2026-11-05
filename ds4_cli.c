@@ -69,9 +69,18 @@ typedef struct {
     float temperature;
     float top_p;
     float min_p;
+    float repeat_penalty;
+    int repeat_window;
+    float dry_multiplier;
+    float dry_base;
+    int dry_allowed_length;
+    int dry_penalty_last_n;
     bool temperature_set;
     bool top_p_set;
     bool min_p_set;
+    bool repeat_penalty_set;
+    bool repeat_window_set;
+    bool dry_multiplier_set;
     uint64_t seed;
     bool dump_tokens;
     const char *dump_logits_path;
@@ -601,6 +610,8 @@ static int run_sampled_generation(ds4_engine *engine, const cli_config *cfg, con
         cli_greedy_argmax_requested(speculative_argmax);
     bool have_greedy_next = false;
     int greedy_next = -1;
+    struct dspark_controller quench;
+    dspark_init(&quench, 2.16f, 5);
     const double t_decode0 = cli_now_sec();
     while (generated < max_tokens && !cli_interrupt_requested()) {
         int token;
@@ -608,14 +619,22 @@ static int run_sampled_generation(ds4_engine *engine, const cli_config *cfg, con
             token = greedy_next;
             have_greedy_next = false;
         } else {
-            token = ds4_session_sample(session, cfg->gen.temperature, 0,
-                                       cfg->gen.top_p, cfg->gen.min_p, &rng);
+            token = ds4_session_sample_opts(session, cfg->gen.temperature, 0,
+                                            cfg->gen.top_p, cfg->gen.min_p,
+                                            cfg->gen.repeat_penalty, 0.0f, 0.0f,
+                                            cfg->gen.repeat_window,
+                                            cfg->gen.dry_multiplier,
+                                            cfg->gen.dry_base,
+                                            cfg->gen.dry_allowed_length,
+                                            cfg->gen.dry_penalty_last_n,
+                                            &rng);
         }
         if (ds4_token_is_stop_for_think_mode(engine, token, think_mode)) break;
 
         int toks[17];
         int ntok = 0;
-        if (ds4_engine_mtp_draft_tokens(engine) > 1 &&
+        if (dspark_step_should_speculate(&quench) &&
+            ds4_engine_mtp_draft_tokens(engine) > 1 &&
             getenv("DS4_MTP_SPEC_DISABLE") == NULL) {
             cli_dist_busy_set(cfg, true);
             ntok = ds4_session_eval_speculative(
@@ -630,6 +649,8 @@ static int run_sampled_generation(ds4_engine *engine, const cli_config *cfg, con
                 ds4_session_free(session);
                 return 1;
             }
+            uint32_t attempted = ds4_session_dspark_last_attempted(session);
+            dspark_update_proportional(&quench, ntok, attempted > 0 ? (int)attempted : 4);
         } else {
             size_t piece_len = 0;
             char *piece = ds4_token_text(engine, token, &piece_len);
@@ -1603,6 +1624,8 @@ static int run_chat_turn(ds4_engine *engine, cli_config *cfg, repl_chat *chat,
         cli_greedy_argmax_requested(speculative_argmax);
     bool have_greedy_next = false;
     int greedy_next = -1;
+    struct dspark_controller quench;
+    dspark_init(&quench, 2.16f, 5);
     const double t_decode0 = cli_now_sec();
     while (generated < max_tokens && !cli_interrupt_requested()) {
         int token;
@@ -1610,18 +1633,27 @@ static int run_chat_turn(ds4_engine *engine, cli_config *cfg, repl_chat *chat,
             token = greedy_next;
             have_greedy_next = false;
         } else {
-            token = ds4_session_sample(chat->session,
-                                       cfg->gen.temperature,
-                                       0,
-                                       cfg->gen.top_p,
-                                       cfg->gen.min_p,
-                                       &rng);
+            token = ds4_session_sample_opts(chat->session,
+                                           cfg->gen.temperature,
+                                           0,
+                                           cfg->gen.top_p,
+                                           cfg->gen.min_p,
+                                           cfg->gen.repeat_penalty,
+                                           0.0f,
+                                           0.0f,
+                                           cfg->gen.repeat_window,
+                                           cfg->gen.dry_multiplier,
+                                           cfg->gen.dry_base,
+                                           cfg->gen.dry_allowed_length,
+                                           cfg->gen.dry_penalty_last_n,
+                                           &rng);
         }
         if (ds4_token_is_stop_for_think_mode(engine, token, think_mode)) break;
 
         int toks[17];
         int ntok = 0;
-        if (ds4_engine_mtp_draft_tokens(engine) > 1 &&
+        if (dspark_step_should_speculate(&quench) &&
+            ds4_engine_mtp_draft_tokens(engine) > 1 &&
             getenv("DS4_MTP_SPEC_DISABLE") == NULL) {
             cli_dist_busy_set(cfg, true);
             ntok = ds4_session_eval_speculative(
@@ -1635,6 +1667,8 @@ static int run_chat_turn(ds4_engine *engine, cli_config *cfg, repl_chat *chat,
                 fprintf(stderr, "ds4: decode failed: %s\n", err);
                 return 1;
             }
+            uint32_t attempted = ds4_session_dspark_last_attempted(chat->session);
+            dspark_update_proportional(&quench, ntok, attempted > 0 ? (int)attempted : 4);
         } else {
             size_t piece_len = 0;
             char *piece = ds4_token_text(engine, token, &piece_len);
@@ -1934,6 +1968,12 @@ static cli_config parse_options(int argc, char **argv) {
             .temperature = DS4_DEFAULT_TEMPERATURE,
             .top_p = DS4_DEFAULT_TOP_P,
             .min_p = DS4_DEFAULT_MIN_P,
+            .repeat_penalty = DS4_DEFAULT_REPEAT_PENALTY,
+            .repeat_window = DS4_DEFAULT_REPEAT_WINDOW,
+            .dry_multiplier = 0.0f,
+            .dry_base = 1.75f,
+            .dry_allowed_length = 2,
+            .dry_penalty_last_n = 256,
             .dump_logprobs_top_k = 20,
             .think_mode = DS4_THINK_HIGH,
         },
@@ -2037,7 +2077,7 @@ static cli_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "--dspark-strict")) {
             c.engine.dspark = true;
             c.engine.dspark_strict = true;
-        } else if (!strcmp(arg, "--mtp-exact-sampling")) {
+        } else if (!strcmp(arg, "--mtp-exact-sampling") || !strcmp(arg, "--dspark-exact-sampling")) {
             c.engine.dspark_exact_sampling = true;
         } else if (!strcmp(arg, "-n") || !strcmp(arg, "--tokens")) {
             c.gen.n_predict = parse_int(need_arg(&i, argc, argv, arg), arg);
@@ -2052,6 +2092,27 @@ static cli_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "--min-p")) {
             c.gen.min_p = parse_float_range(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
             c.gen.min_p_set = true;
+        } else if (!strcmp(arg, "--repeat-penalty") || !strcmp(arg, "--repetition-penalty")) {
+            c.gen.repeat_penalty = parse_float_range(need_arg(&i, argc, argv, arg), arg, 0.0f, 10.0f);
+            c.gen.repeat_penalty_set = true;
+        } else if (!strcmp(arg, "--repeat-window") || !strcmp(arg, "--repeat-last-n")) {
+            c.gen.repeat_window = parse_int(need_arg(&i, argc, argv, arg), arg);
+            c.gen.repeat_window_set = true;
+        } else if (!strcmp(arg, "--dry-multiplier")) {
+            c.gen.dry_multiplier = parse_float_range(need_arg(&i, argc, argv, arg), arg, 0.0f, 10.0f);
+            c.gen.dry_multiplier_set = true;
+        } else if (!strcmp(arg, "--dry-base")) {
+            c.gen.dry_base = parse_float_range(need_arg(&i, argc, argv, arg), arg, 1.0f, 10.0f);
+        } else if (!strcmp(arg, "--dry-allowed-length")) {
+            c.gen.dry_allowed_length = parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--dry-penalty-last-n")) {
+            c.gen.dry_penalty_last_n = parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--spec-ngram")) {
+            c.engine.spec_ngram = true;
+        } else if (!strcmp(arg, "--spec-ngram-n")) {
+            c.engine.spec_ngram_n = (uint32_t)parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--spec-ngram-draft")) {
+            c.engine.spec_ngram_draft = (uint32_t)parse_int(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--seed")) {
             c.gen.seed = parse_u64(need_arg(&i, argc, argv, arg), arg);
         } else if (!strcmp(arg, "--quality")) {

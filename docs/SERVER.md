@@ -45,7 +45,10 @@ returned separately from visible text in each API's native form. Standard
 sampling and output-budget fields are supported; explicit request parameters
 take precedence over defaults.
 
-The default sampling settings are temperature 1, top-p 1, and min-p 0.05.
+The default sampling settings are temperature 0.6, top-p 0.95, min-p 0.05,
+and a repetition penalty of 1.10 over a 128-token window. Requests may override
+these with `temperature`, `top_p`, `presence_penalty`, `frequency_penalty`,
+`repeat_penalty`, and `repeat_window` (or `--repeat-penalty 1.0` to disable).
 For DeepSeek, thinking is on by default. `reasoning_effort=max` selects Think
 Max only with sufficient context; otherwise it falls back to normal thinking.
 `xhigh` maps to normal thinking, not Think Max. Use `think:false`, a disabled

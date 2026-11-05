@@ -193,6 +193,32 @@ __device__ __forceinline__ void ds4_sm121_mma_m16n8k64_mxf4(
 #endif
 }
 
+/* Native NVFP4 Block-Scaled Tensor Core MMA wrapper for SM121 (llama.cpp PR #22196):
+ * mma.sync.aligned.kind::mxf4nvf4.block_scale.scale_vec::4X.m16n8k64.row.col.f32.e2m1.e2m1.f32.ue4m3
+ * Consumes packed E2M1 weights and E2M1 activations with 4X UE4M3 subblock scales and FP32 accumulation. */
+__device__ __forceinline__ void ds4_sm121_mma_m16n8k64_nvfp4(
+    float d[4],
+    const uint32_t a[4],
+    const uint32_t b[2],
+    const float c[4],
+    uint32_t a_scale,
+    uint32_t b_scale) {
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1200)
+    asm volatile(
+        "mma.sync.aligned.kind::mxf4nvf4.block_scale.scale_vec::4X.m16n8k64.row.col.f32.e2m1.e2m1.f32.ue4m3 "
+        "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%10, %11, %12, %13}, "
+        "%14, {0, 0}, %15, {0, 0};\n"
+        : "=f"(d[0]), "=f"(d[1]), "=f"(d[2]), "=f"(d[3])
+        : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]),
+          "r"(b[0]), "r"(b[1]),
+          "f"(c[0]), "f"(c[1]), "f"(c[2]), "f"(c[3]),
+          "r"(a_scale), "r"(b_scale));
+#else
+    d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = c[3];
+    (void)a; (void)b; (void)a_scale; (void)b_scale;
+#endif
+}
+
 /* Native MXF8F6F4 Block-Scaled Tensor Core MMA wrapper for SM121:
  * mma.sync.aligned.kind::mxf8f6f4.block_scale.scale_vec::1X.m16n8k32.row.col.f32.e4m3.e2m1.f32.ue8m0
  * Consumes packed E4M3 activations and E2M1 weights with E8M0 block scales and FP32 accumulation. */

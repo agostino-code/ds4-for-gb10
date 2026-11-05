@@ -2,6 +2,11 @@
 
 [README](../README.md)
 
+> **CUDA-only build.** This repository is stripped of the Metal (Apple) and
+> ROCm (AMD) backends. Instructions below that reference macOS, M-series Macs,
+> or Strix Halo apply only to the upstream fork; use the CUDA / GB10 paths
+> documented in [DGX_SPARK.md](DGX_SPARK.md) instead.
+
 There are two modes:
 
 | Mode | Split | Main use |

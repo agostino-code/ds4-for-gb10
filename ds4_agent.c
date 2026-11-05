@@ -76,9 +76,13 @@ typedef struct {
     float temperature;
     float top_p;
     float min_p;
+    float repeat_penalty;
+    int repeat_window;
     bool temperature_set;
     bool top_p_set;
     bool min_p_set;
+    bool repeat_penalty_set;
+    bool repeat_window_set;
     uint64_t seed;
     ds4_think_mode think_mode;
 } agent_generation_options;
@@ -724,6 +728,8 @@ static agent_config parse_options(int argc, char **argv) {
             .temperature = DS4_DEFAULT_TEMPERATURE,
             .top_p = DS4_DEFAULT_TOP_P,
             .min_p = DS4_DEFAULT_MIN_P,
+            .repeat_penalty = DS4_DEFAULT_REPEAT_PENALTY,
+            .repeat_window = DS4_DEFAULT_REPEAT_WINDOW,
             .think_mode = DS4_THINK_HIGH,
         },
     };
@@ -854,6 +860,12 @@ static agent_config parse_options(int argc, char **argv) {
         } else if (!strcmp(arg, "--temp")) {
             c.gen.temperature = parse_float_range(need_arg(&i, argc, argv, arg), arg, 0.0f, 100.0f);
             c.gen.temperature_set = true;
+        } else if (!strcmp(arg, "--repeat-penalty") || !strcmp(arg, "--repetition-penalty")) {
+            c.gen.repeat_penalty = parse_float_range(need_arg(&i, argc, argv, arg), arg, 0.0f, 10.0f);
+            c.gen.repeat_penalty_set = true;
+        } else if (!strcmp(arg, "--repeat-window") || !strcmp(arg, "--repeat-last-n")) {
+            c.gen.repeat_window = parse_int(need_arg(&i, argc, argv, arg), arg);
+            c.gen.repeat_window_set = true;
         } else if (!strcmp(arg, "--top-p")) {
             c.gen.top_p = parse_float_range(need_arg(&i, argc, argv, arg), arg, 0.0f, 1.0f);
             c.gen.top_p_set = true;
@@ -10268,12 +10280,16 @@ static bool agent_stream_compaction_needs_lookahead(const agent_stream_renderer 
 
 static int worker_sample_with_mode(agent_worker *w, const agent_config *cfg,
                                    bool greedy, uint64_t *rng) {
-    return ds4_session_sample(w->session,
-                              greedy ? 0.0f : cfg->gen.temperature,
-                              0,
-                              greedy ? 1.0f : cfg->gen.top_p,
-                              greedy ? 0.0f : cfg->gen.min_p,
-                              rng);
+    return ds4_session_sample_ex(w->session,
+                                  greedy ? 0.0f : cfg->gen.temperature,
+                                  0,
+                                  greedy ? 1.0f : cfg->gen.top_p,
+                                  greedy ? 0.0f : cfg->gen.min_p,
+                                  cfg->gen.repeat_penalty,
+                                  0.0f,
+                                  0.0f,
+                                  cfg->gen.repeat_window,
+                                  rng);
 }
 
 static void worker_set_greedy_sampling(agent_worker *w, bool greedy) {
@@ -10885,11 +10901,15 @@ static int worker_run_raw_prompt(agent_worker *w, const char *user_text) {
     pthread_mutex_unlock(&w->mu);
 
     while (generated < max_tokens && !worker_should_interrupt(w)) {
-        int token = ds4_session_sample(w->session,
+        int token = ds4_session_sample_ex(w->session,
                                        cfg->gen.temperature,
                                        0,
                                        cfg->gen.top_p,
                                        cfg->gen.min_p,
+                                       cfg->gen.repeat_penalty,
+                                       0.0f,
+                                       0.0f,
+                                       cfg->gen.repeat_window,
                                        &rng);
         if (ds4_token_is_stop(w->engine, token)) break;
 

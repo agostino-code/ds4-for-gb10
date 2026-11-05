@@ -32,6 +32,16 @@ int main(void) {
     assert(dspark_step_should_speculate(&c) == true);
     assert(c.quenched == false);
 
+    // Scenario D: Proportional updates on truncated blocks (attempt 2, accept 2 -> regret 0)
+    dspark_update_proportional(&c, 2, 2);
+    assert(dspark_step_should_speculate(&c) == true);
+    assert(c.regret_accum == 0.0f);
+
+    // Attempt 2, accept 0 -> regret accumulates proportionally (~1.08 per step, not 2.16)
+    dspark_update_proportional(&c, 0, 2);
+    assert(c.regret_accum > 1.0f && c.regret_accum < 1.2f);
+    assert(dspark_step_should_speculate(&c) == true);
+
     printf("test_dspark_quench: PASS\n");
     return 0;
 }

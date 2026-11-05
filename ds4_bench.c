@@ -73,6 +73,10 @@ typedef struct {
     bool dspark;
     bool dspark_confidence_threshold_set;
     float dspark_confidence_threshold;
+    bool dspark_exact_sampling;
+    bool spec_ngram;
+    uint32_t spec_ngram_n;
+    uint32_t spec_ngram_draft;
 } bench_config;
 
 static double bench_now_sec(void) {
@@ -281,6 +285,14 @@ static bench_config parse_options(int argc, char **argv) {
             c.dspark = true;
             c.dspark_confidence_threshold = (float)v;
             c.dspark_confidence_threshold_set = true;
+        } else if (!strcmp(arg, "--spec-ngram")) {
+            c.spec_ngram = true;
+        } else if (!strcmp(arg, "--spec-ngram-n")) {
+            c.spec_ngram_n = (uint32_t)parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--spec-ngram-draft")) {
+            c.spec_ngram_draft = (uint32_t)parse_int(need_arg(&i, argc, argv, arg), arg);
+        } else if (!strcmp(arg, "--dspark-exact-sampling") || !strcmp(arg, "--mtp-exact-sampling")) {
+            c.dspark_exact_sampling = true;
         } else if (!strcmp(arg, "--prompt-file")) {
             c.prompt_path = need_arg(&i, argc, argv, arg);
         } else if (!strcmp(arg, "--chat-prompt-file")) {
@@ -661,8 +673,12 @@ int main(int argc, char **argv) {
         .warm_weights = cfg.warm_weights,
         .quality = cfg.quality,
         .dspark = cfg.dspark,
+        .dspark_exact_sampling = cfg.dspark_exact_sampling,
         .dspark_confidence_threshold = cfg.dspark_confidence_threshold,
         .dspark_confidence_threshold_set = cfg.dspark_confidence_threshold_set,
+        .spec_ngram = cfg.spec_ngram,
+        .spec_ngram_n = cfg.spec_ngram_n,
+        .spec_ngram_draft = cfg.spec_ngram_draft,
         .cuda_tensor_parallel = cfg.cuda_tensor_parallel,
         .ssd_streaming = cfg.ssd_streaming,
         .ssd_streaming_cold = cfg.ssd_streaming_cold,

@@ -84,7 +84,6 @@ CUDA TP defaults to 2048-token prefill chunks. Keep that default for the
 16-session, 100k-context setup; larger chunks need more scratch memory.
 Reduce session count or context if all KV states do not fit.
 
-The repository's [server launcher](../run-nvidia-tp-server.sh) is an example
-from the L40S deployment, not a portable default: it uses host-specific model
-and cache paths and defaults to MXFP4. The commands above need no launcher or
-environment tuning. See [serving](SERVER.md) for disk caches and API access.
+The commands above need no launcher or environment tuning; see
+[serving](SERVER.md) for disk caches and API access. For single-GPU GB10
+serving use `scripts/serve_dgx_spark.sh` (see [DGX Spark](DGX_SPARK.md)).

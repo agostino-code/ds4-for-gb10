@@ -189,8 +189,11 @@ static void print_model_runtime(FILE *fp, const help_colors *c,
             opt(fp, c, "--mtp-timing", "Enable embedded MTP and print acceptance/timing counters.");
             opt(fp, c, "--dspark", "Enable DSpark using the support GGUF passed with --mtp-model.");
             opt(fp, c, "--dspark-confidence F", "Enable DSpark with confidence pruning threshold 0..1. Greedy/opportunistic default: resident Spark Q2 0.4, two-Spark Flash Q2/MXFP4 0, Metal 0.6, other CUDA/ROCm 0.7; exact sampling: 0.8");
-            opt(fp, c, "--mtp-exact-sampling", "Preserve the ordinary temperature distribution instead of accepting target-matching greedy drafts directly.");
+            opt(fp, c, "--dspark-exact-sampling", "Preserve exact temperature distribution via rejection sampling instead of greedy draft matching.");
             opt(fp, c, "--dspark-strict", "Load DSpark support but keep target-only decode.");
+            opt(fp, c, "--spec-ngram", "Enable draftless self-speculative decoding from context n-gram statistics.");
+            opt(fp, c, "--spec-ngram-n N", "Context lookup n-gram size for self-speculation (default: 3).");
+            opt(fp, c, "--spec-ngram-draft N", "Maximum draft tokens proposed by self-speculation (default: 3).");
         } else if (tool == DS4_HELP_BENCH) {
             opt(fp, c, "--dspark", "Benchmark greedy DSpark using the support GGUF passed with --mtp-model.");
             opt(fp, c, "--dspark-confidence F", "DSpark confidence pruning threshold 0..1.");
@@ -210,6 +213,12 @@ static void print_sampling(FILE *fp, const help_colors *c, bool full, ds4_help_t
     opt(fp, c, "--temp F", "Sampling temperature. 0 is greedy/deterministic.");
     opt(fp, c, "--top-p F", "Nucleus sampling probability.");
     opt(fp, c, "--min-p F", "Keep tokens scoring at least F times the top token.");
+    opt(fp, c, "--repeat-penalty F", "Penalize recently generated tokens (default: 1.10). 1.0 disables.");
+    opt(fp, c, "--repeat-window N", "Sliding window of recent tokens to penalize (default: 128).");
+    opt(fp, c, "--dry-multiplier F", "DRY sequence-repetition penalty multiplier (0 disables; recommended 0.8).");
+    opt(fp, c, "--dry-base F", "Exponential base for DRY penalty scaling (default: 1.75).");
+    opt(fp, c, "--dry-allowed-length N", "Minimum matching sequence length before DRY penalty applies (default: 2).");
+    opt(fp, c, "--dry-penalty-last-n N", "Window of recent tokens for DRY sequence matching (default: 256).");
     opt(fp, c, "--seed N", "Sampling seed for reproducible non-greedy runs.");
     para(fp, c, "GLM CLI and agent runs default to temperature 1.0, top-p 0.95, and min-p 0 unless those options are set explicitly.");
     opt(fp, c, "--think", "Use normal thinking mode (V4.1: effort 75).");
